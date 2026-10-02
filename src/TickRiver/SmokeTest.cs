@@ -117,10 +117,26 @@ internal static class SmokeTest
             window.NextRangeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             if (window.FromDate.SelectedDate != initialFrom || window.ToDate.SelectedDate != initialTo) throw new Exception("Calendar range did not return to original.");
         }
+        var connections = new ConnectionsDialog(window, [
+            "Codex: Bundled executable and database verified.",
+            "Claude Code: Bundled executable and database verified.",
+            "Claude Desktop: Bundled executable and database verified.",
+            "Kiro: Bundled executable and database verified.",
+            "Grok Build: not detected."]) { ShowActivated = false };
+        connections.Show(); Capture(connections, Path.Combine(directory, "ai-connections.png"));
+        connections.CloseButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (connections.IsVisible) throw new Exception("Connections dialog did not close.");
+        var warnings = new ConnectionsDialog(window, [
+            "Codex: TickRiver connected; bundled executable and database updated. Restart the client if needed. Server version 0.1.3; reconnect the client to refresh available tools.",
+            "Claude Code: Custom TickRiver executable; user configuration preserved.",
+            "Claude Desktop: TickRiver is disabled; user configuration preserved.",
+            "Kiro: could not connect — Client config must be a JSON object.",
+            "Grok Build: not detected."]) { ShowActivated = false, Width = 560, Height = 480 };
+        warnings.Show(); Capture(warnings, Path.Combine(directory, "ai-connections-warnings.png")); warnings.Close();
         window.Close();
         File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: window lifecycle, timer controls, external entry edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports.");
     }
-    private static void Capture(MainWindow window, string path)
+    private static void Capture(Window window, string path)
     {
         window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         window.UpdateLayout();
