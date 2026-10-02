@@ -214,8 +214,20 @@ public partial class MainWindow : Window
         ReportGrid.ItemsSource = _report.Rows; ReportTotal.Text = $"Total {_report.Duration}  ·  {_report.Seconds / 3600m:0.######} hours";
         ReportAmount.Text = $"{_report.RangeLabel}  ·  Billable amount: {(_report.AmountLabel.Length > 0 ? _report.AmountLabel : "0.00")}";
     }
-    private void ExportPng(object sender, RoutedEventArgs e) => Try(() => { RefreshReport(); var dialog = new SaveFileDialog { Filter = "PNG chart|*.png", FileName = $"TickRiver-{_report!.From:yyyy-MM-dd}-{_report.To:yyyy-MM-dd}.png" }; if (dialog.ShowDialog(this) == true) { HoursChart.SavePng(_report, dialog.FileName); StatusText.Text = $"Chart saved: {dialog.FileName}"; } });
-    private void ExportExcel(object sender, RoutedEventArgs e) => Try(() => { RefreshReport(); var dialog = new SaveFileDialog { Filter = "Excel workbook|*.xlsx", FileName = $"TickRiver-{_report!.From:yyyy-MM-dd}-{_report.To:yyyy-MM-dd}.xlsx" }; if (dialog.ShowDialog(this) == true) { ExcelExport.Save(_report, dialog.FileName); StatusText.Text = $"Workbook saved: {dialog.FileName}"; } });
+    internal string ExportFileName(string extension)
+    {
+        var client = ClientFilter.SelectedItem as Client; var project = ProjectFilter.SelectedItem as Project;
+        var names = new[] { project?.Id > 0 ? project.ClientName : client?.Id > 0 ? client.Name : null, project?.Id > 0 ? project.Name : null };
+        var invalid = Path.GetInvalidFileNameChars();
+        var parts = names.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => {
+            var part = string.Concat(n!.Select(c => invalid.Contains(c) ? '_' : c)).Trim();
+            return part.Length <= 80 ? part : part[..(char.IsHighSurrogate(part[79]) ? 79 : 80)];
+        });
+        var prefix = string.Join("-", new[] { "TickRiver" }.Concat(parts));
+        return $"{prefix}-{_report!.From:yyyy-MM-dd}-{_report.To:yyyy-MM-dd}.{extension}";
+    }
+    private void ExportPng(object sender, RoutedEventArgs e) => Try(() => { RefreshReport(); var dialog = new SaveFileDialog { Filter = "PNG chart|*.png", FileName = ExportFileName("png") }; if (dialog.ShowDialog(this) == true) { HoursChart.SavePng(_report!, dialog.FileName); StatusText.Text = $"Chart saved: {dialog.FileName}"; } });
+    private void ExportExcel(object sender, RoutedEventArgs e) => Try(() => { RefreshReport(); var dialog = new SaveFileDialog { Filter = "Excel workbook|*.xlsx", FileName = ExportFileName("xlsx") }; if (dialog.ShowDialog(this) == true) { ExcelExport.Save(_report!, dialog.FileName); StatusText.Text = $"Workbook saved: {dialog.FileName}"; } });
     private void MarkInvoiced(object sender, RoutedEventArgs e) => Try(() => {
         RefreshReport();
         if (_report!.Rows.Count == 0) throw new ArgumentException("There are no entries in this report.");

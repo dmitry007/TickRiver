@@ -20,6 +20,8 @@ Reports offer day, week, month, quarter, and year presets plus custom inclusive 
 
 PNG exports contain a white chart with the client/project, period, total duration, decimal hours and zero-work days. Longer periods use one chart panel per month. Excel exports contain detailed entries and a daily summary with native editable Excel charts. Duration cells are numeric with `[h]:mm:ss` formatting; decimal-hour cells are numeric and retain second precision. Amounts use each entry’s recorded rate. Different currencies are kept separate. Exports do not mark time invoiced; Mark invoiced is an explicit action. Edit an entry to remove its invoiced flag.
 
+Export filenames include the selected client, project (when selected), and date range, for example `TickRiver-Acme-Website-2026-06-01-2026-10-31.xlsx`. A client-only report omits the project; an unfiltered report uses just TickRiver and the dates. PNG uses the same naming. Characters that cannot appear in filenames are replaced with underscores; long client/project names are shortened to keep filenames within Windows limits.
+
 Manual time cannot overlap another entry. For an overnight manual entry, choose the following end date. Ranges are limited to ten years. Invoice generation, taxes, rounding policies, synchronization and idle detection are outside this initial version.
 
 ## Local MCP integration

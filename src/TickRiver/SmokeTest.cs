@@ -112,6 +112,32 @@ internal static class SmokeTest
         var report = window.Chart.Report!;
         HoursChart.SavePng(report, Path.Combine(directory, "invoice-chart.png"));
         ExcelExport.Save(report, Path.Combine(directory, "invoice-hours.xlsx"));
+        var dates = $"{report.From:yyyy-MM-dd}-{report.To:yyyy-MM-dd}";
+        if (window.ExportFileName("xlsx") != $"TickRiver-{dates}.xlsx") throw new Exception("Unfiltered export filename changed.");
+        window.ClientFilter.SelectedItem = ((IEnumerable<Client>)window.ClientFilter.ItemsSource).Single(c => c.Id == client);
+        window.RefreshReport();
+        if (window.ExportFileName("xlsx") != $"TickRiver-Northwind Studio-{dates}.xlsx") throw new Exception("Client export filename missing or includes an unselected project.");
+        window.ClientFilter.SelectedIndex = 0;
+        window.ProjectFilter.SelectedItem = ((IEnumerable<Project>)window.ProjectFilter.ItemsSource).Single(p => p.Id == project);
+        window.UnbilledFilter.IsChecked = true; window.RefreshReport();
+        if (window.ExportFileName("png") != $"TickRiver-Northwind Studio-Website maintenance-{dates}.png") throw new Exception("Project export filename missing its client or includes the billing title.");
+        var namedClient = store.SaveClient(0, "München / R&D", "EUR", 100, false);
+        var namedProject = store.SaveProject(0, namedClient, "Website: \"v2\"?", null, true, false);
+        window.Refresh();
+        window.ClientFilter.SelectedItem = ((IEnumerable<Client>)window.ClientFilter.ItemsSource).Single(c => c.Id == namedClient);
+        window.ProjectFilter.SelectedItem = ((IEnumerable<Project>)window.ProjectFilter.ItemsSource).Single(p => p.Id == namedProject);
+        window.RefreshReport();
+        var exportName = window.ExportFileName("xlsx");
+        if (exportName != $"TickRiver-München _ R&D-Website_ _v2__-{dates}.xlsx") throw new Exception("Export filename lost Unicode or contains unsafe name characters.");
+        ExcelExport.Save(window.Chart.Report!, Path.Combine(directory, exportName));
+        HoursChart.SavePng(window.Chart.Report!, Path.Combine(directory, window.ExportFileName("png")));
+        store.SaveClient(namedClient, new string('A', 79) + "🚀" + new string('A', 200), "EUR", 100, false);
+        store.SaveProject(namedProject, namedClient, new string('B', 300), null, true, false);
+        window.Refresh();
+        exportName = window.ExportFileName("xlsx");
+        if (exportName != $"TickRiver-{new string('A', 79)}-{new string('B', 80)}-{dates}.xlsx") throw new Exception("Long export names exceed filename limits or split a Unicode character.");
+        ExcelExport.Save(window.Chart.Report!, Path.Combine(directory, exportName));
+        window.ClientFilter.SelectedIndex = 0; window.UnbilledFilter.IsChecked = false; window.RefreshReport();
         foreach (var preset in new[] { "This month", "This quarter", "This year" })
         {
             window.RangePreset.SelectedItem = preset;
@@ -141,7 +167,7 @@ internal static class SmokeTest
             "Grok Build: not detected."]) { ShowActivated = false, Width = 560, Height = 480 };
         warnings.Show(); Capture(warnings, Path.Combine(directory, "ai-connections-warnings.png")); warnings.Close();
         window.Close();
-        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports.");
+        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names.");
     }
     private static void Capture(Window window, string path)
     {
