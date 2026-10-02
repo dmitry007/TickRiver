@@ -43,7 +43,7 @@ public partial class MainWindow : Window
             _tray.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) Dispatcher.Invoke(Restore); };
         }
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) }; _clock.Tick += (_, _) => SynchronizeTimer(); _clock.Start();
-        Chart.DayClicked += day => { if (_report == null) return; ReportGrid.ItemsSource = _report.Rows.Where(r => r.Day == day).ToArray(); ReportTabs.SelectedIndex = 1; StatusText.Text = $"Showing {day:MMMM d, yyyy}. Apply the report again to show the full range."; };
+        Chart.DayClicked += day => { if (_report == null) return; ReportGrid.ItemsSource = _report.Rows.Where(r => r.Day == day).OrderByDescending(r => r.Start).ToArray(); ReportTabs.SelectedIndex = 1; StatusText.Text = $"Showing {day:MMMM d, yyyy}. Apply the report again to show the full range."; };
         _ready = true; Refresh(); RangePreset.SelectedItem = "This month"; TrackerNav.IsChecked = true;
         Closing += OnClosing;
         Closed += (_, _) => { _clock.Stop(); _tray?.Dispose(); _trayIcon?.Dispose(); _changeMonitor.Dispose(); };
@@ -211,7 +211,7 @@ public partial class MainWindow : Window
         _report = ReportBuilder.Build(_store.Entries(), DateOnly.FromDateTime(from), DateOnly.FromDateTime(to), title,
             client?.Id > 0 ? client.Id : null, project?.Id > 0 ? project.Id : null, UnbilledFilter.IsChecked == true);
         Chart.Report = _report; ChartTitle.Text = title;
-        ReportGrid.ItemsSource = _report.Rows; ReportTotal.Text = $"Total {_report.Duration}  ·  {_report.Seconds / 3600m:0.######} hours";
+        ReportGrid.ItemsSource = _report.Rows.OrderByDescending(r => r.Start).ToArray(); ReportTotal.Text = $"Total {_report.Duration}  ·  {_report.Seconds / 3600m:0.######} hours";
         ReportAmount.Text = $"{_report.RangeLabel}  ·  Billable amount: {(_report.AmountLabel.Length > 0 ? _report.AmountLabel : "0.00")}";
     }
     internal string ExportFileName(string extension)
