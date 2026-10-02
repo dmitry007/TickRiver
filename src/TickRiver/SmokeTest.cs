@@ -26,6 +26,33 @@ internal static class SmokeTest
         store.Start(project, "Checking timer recovery", TimeFormat.Now.AddSeconds(-125));
         var window = new MainWindow(new Store(store.Path), false) { ShowActivated = false };
         window.Show(); window.UpdateLayout();
+        if (window.Icon == null) throw new Exception("Application icon missing.");
+        window.WindowState = WindowState.Minimized;
+        if (!window.IsVisible || !window.ShowInTaskbar) throw new Exception("Minimized window disappeared from the taskbar.");
+        window.Restore();
+        window.ShowActivated = true; window.WindowState = WindowState.Maximized; window.Hide(); window.Restore();
+        if (!window.IsVisible || window.WindowState != WindowState.Maximized) throw new Exception("Restoring a hidden window lost its maximized state.");
+        window.WindowState = WindowState.Normal; window.ShowActivated = false; window.Hide();
+        var instanceName = "Local\\TickRiver-test-" + Guid.NewGuid().ToString("N");
+        using (var first = new SingleInstance(instanceName, () => window.Dispatcher.BeginInvoke(window.Restore)))
+        {
+            if (!first.IsFirst || first.OwnerProcessId != Environment.ProcessId) throw new Exception("Fresh instance did not publish its owner.");
+            using (var secondInstance = new SingleInstance(instanceName, () => { }))
+            {
+                if (secondInstance.IsFirst) throw new Exception("Second instance was accepted.");
+                if (secondInstance.OwnerProcessId != first.OwnerProcessId) throw new Exception("Second instance did not find the original process.");
+            }
+            var deadline = DateTime.UtcNow.AddSeconds(3);
+            while (!window.IsVisible && DateTime.UtcNow < deadline)
+            {
+                System.Threading.Thread.Sleep(10);
+                window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            }
+            if (!window.IsVisible) throw new Exception("Second launch did not restore the hidden window.");
+        }
+        var crash = CrashLog.Write(new InvalidOperationException("Diagnostic fixture"), "Smoke test", Path.Combine(directory, "logs"));
+        if (crash == null || !File.ReadAllText(crash).Contains("Diagnostic fixture")) throw new Exception("Diagnostic log missing.");
+        if (CrashLog.Write(new Exception("Expected log failure"), "Smoke test", store.Path) != null) throw new Exception("Unwritable diagnostic path should be tolerated.");
         if (window.TimerButton.Content.ToString() != "STOP" || window.TimerLabel.Text == "00:00:00") throw new Exception("Persisted timer was not recovered.");
         window.TimerButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (store.Entries().Any(e => e.End == null)) throw new Exception("Stop button failed to save the timer.");
@@ -62,7 +89,7 @@ internal static class SmokeTest
             if (window.FromDate.SelectedDate != initialFrom || window.ToDate.SelectedDate != initialTo) throw new Exception("Calendar range did not return to original.");
         }
         window.Close();
-        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: timer recovery, Start/Stop UI, external timer synchronization, repeated month/quarter/year navigation, all screens, PNG and Excel exports.");
+        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: icon, minimized taskbar presence, hidden/maximized restore, single-instance activation, diagnostic logging, timer recovery, Start/Stop UI, external timer synchronization, repeated month/quarter/year navigation, all screens, PNG and Excel exports.");
     }
     private static void Capture(MainWindow window, string path)
     {

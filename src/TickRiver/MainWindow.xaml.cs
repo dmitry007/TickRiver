@@ -14,6 +14,7 @@ public partial class MainWindow : Window
     private readonly Store _store;
     private readonly DispatcherTimer _clock;
     private readonly System.Windows.Forms.NotifyIcon? _tray;
+    private readonly System.Drawing.Icon? _trayIcon;
     private bool _ready, _exiting, _changingFilters, _settingRange;
     private int _rangeMonths;
     private long _lastEntryId;
@@ -27,21 +28,24 @@ public partial class MainWindow : Window
         RangePreset.ItemsSource = new[] { "Today", "Yesterday", "This week", "Last week", "This month", "Last month", "This quarter", "Last quarter", "This year", "Last year", "Custom range" };
         if (tray)
         {
-            _tray = new System.Windows.Forms.NotifyIcon { Icon = System.Drawing.SystemIcons.Application, Text = "TickRiver", Visible = true };
+            using var icon = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/TickRiver.ico")).Stream;
+            _trayIcon = new System.Drawing.Icon(icon, System.Windows.Forms.SystemInformation.SmallIconSize);
+            _tray = new System.Windows.Forms.NotifyIcon { Icon = _trayIcon, Text = "TickRiver", Visible = true };
             var menu = new System.Windows.Forms.ContextMenuStrip();
             menu.Items.Add("Open TickRiver", null, (_, _) => Dispatcher.Invoke(Restore));
             menu.Items.Add("Start / Stop timer", null, (_, _) => Dispatcher.Invoke(() => { Restore(); TimerClick(this, new RoutedEventArgs()); }));
             menu.Items.Add("Exit", null, (_, _) => Dispatcher.Invoke(RequestExit));
-            _tray.ContextMenuStrip = menu; _tray.DoubleClick += (_, _) => Dispatcher.Invoke(Restore);
+            _tray.ContextMenuStrip = menu;
+            _tray.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) Dispatcher.Invoke(Restore); };
         }
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) }; _clock.Tick += (_, _) => SynchronizeTimer(); _clock.Start();
         Chart.DayClicked += day => { if (_report == null) return; ReportGrid.ItemsSource = _report.Rows.Where(r => r.Day == day).ToArray(); ReportTabs.SelectedIndex = 1; StatusText.Text = $"Showing {day:MMMM d, yyyy}. Apply the report again to show the full range."; };
         _ready = true; Refresh(); RangePreset.SelectedItem = "This month"; TrackerNav.IsChecked = true;
-        Closing += OnClosing; StateChanged += (_, _) => { if (WindowState == WindowState.Minimized && _tray != null) Hide(); };
-        Closed += (_, _) => { _clock.Stop(); _tray?.Dispose(); };
+        Closing += OnClosing;
+        Closed += (_, _) => { _clock.Stop(); _tray?.Dispose(); _trayIcon?.Dispose(); };
     }
 
-    private void Restore() { Show(); WindowState = WindowState.Normal; Activate(); }
+    internal void Restore() { Show(); if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate(); }
     private void Navigate(object sender, RoutedEventArgs e)
     {
         if (!_ready || sender is not RadioButton button) return;

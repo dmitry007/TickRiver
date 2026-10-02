@@ -8,7 +8,9 @@ The portable Windows x64 build is in `artifacts\TickRiver`. Open `TickRiver.exe`
 
 Create a client with a currency and default hourly rate, then a project. Projects inherit the current client rate or use an explicit override. Entries record their applied rate and currency, so changes do not recalculate past work. Archiving preserves history.
 
-Closing or minimizing the window leaves TickRiver in the system tray. Use Exit TickRiver to quit; with an active timer, choose whether to stop or continue counting. Running timers survive restart. Only completed entries contribute to reports. Continue starts a new session for an existing entry at the current project rate.
+Minimizing leaves TickRiver on the taskbar. Closing hides the window in the system tray while tracking continues. Click the teal clock-and-river tray icon once to reopen it, or launch TickRiver again from the desktop or Start menu: it brings the existing instance forward. Right-click the tray icon for Open, Start / Stop, or Exit. Use Exit TickRiver to quit; with an active timer, choose whether to stop or continue counting. Running timers survive restart. Only completed entries contribute to reports. Continue starts a new session for an existing entry at the current project rate.
+
+Release builds include matching portable PDBs with embedded source. Keep those files alongside the executables for diagnosis. Unexpected managed exceptions and startup failures are recorded under `%LOCALAPPDATA%\TickRiver\logs`, with the executable path, build version, runtime and exception stack. Logging does not suppress an unhandled error. Regenerate the multi-size application/tray/shortcut icon with `tools\Generate-Icon.ps1`.
 
 Data is stored in `%LOCALAPPDATA%\TickRiver\tickriver.sqlite`. Use Back up data to create a consistent SQLite backup while the app runs. To restore, exit TickRiver and AI clients using its MCP server, keep a copy of the current data folder, remove the old database and its `-wal` and `-shm` companion files, then copy the backup to `tickriver.sqlite`.
 
@@ -53,7 +55,7 @@ python tests/test_mcp.py <dotnet.exe> <absolute-path-to-TickRiver.Mcp.dll>
 dotnet src/TickRiver/bin/Debug/net10.0-windows/TickRiver.dll --smoke-test work/smoke
 ```
 
-Tests use disposable databases and fake client homes. They check persistence, rate snapshots, clipping, currencies, DST, overlap rejection, native Excel chart/schema validity, Unicode, MCP totals, timer controls and safe registration. The UI smoke test recovers and stops a persisted timer through the actual button, checks synchronization with external timers and repeated calendar navigation, renders all screens and generates sample exports. It never registers AI clients or writes to the user’s database.
+Tests use disposable databases and fake client homes. They check persistence, rate snapshots, clipping, currencies, DST, overlap rejection, native Excel chart/schema validity, Unicode, MCP totals, timer controls and safe registration. The UI smoke test checks icon loading, minimize/restore behavior, single-instance activation and diagnostic logging, recovers and stops a persisted timer through the actual button, checks synchronization with external timers and repeated calendar navigation, renders all screens and generates sample exports. It never registers AI clients or writes to the user’s database.
 
 To publish, build the UI and server into the same output folder:
 
