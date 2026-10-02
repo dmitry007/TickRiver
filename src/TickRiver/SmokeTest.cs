@@ -69,6 +69,35 @@ internal static class SmokeTest
         window.RangePreset.SelectedItem = "Custom range";
         window.ReportsNav.IsChecked = true; window.UpdateLayout();
         if (window.Chart.Report?.Seconds <= 0) throw new Exception("Report not populated.");
+        var corrected = store.Entries().First(e => e.End > e.Start && e.Start.LocalDateTime >= month && e.Start.LocalDateTime < month.AddMonths(1));
+        var writer = new Store(store.Path);
+        writer.SaveEntry(corrected.Id, corrected.ProjectId, "Corrected externally", corrected.Start, corrected.End!.Value, corrected.Rate + 1, corrected.Billable, corrected.Invoiced, expected: corrected);
+        window.SynchronizeTimer();
+        if (!((System.Windows.Data.ListCollectionView)window.EntriesGrid.ItemsSource).Cast<TimeEntry>().Any(e => e.Id == corrected.Id && e.Description == "Corrected externally")
+            || !window.Chart.Report!.Rows.Any(r => r.Entry.Id == corrected.Id && r.Description == "Corrected externally" && r.Entry.Rate == corrected.Rate + 1))
+            throw new Exception("UI tracker or report missed an external edit to an existing entry.");
+        var desktopSnapshot = store.Entries().Single(e => e.Id == corrected.Id);
+        var desktopEditRejected = false;
+        Exception? editFailure = null;
+        window.Dispatcher.BeginInvoke(() => {
+            var dialog = System.Windows.Application.Current.Windows.OfType<EditDialog>().Single();
+            try
+            {
+                writer.SaveEntry(desktopSnapshot.Id, desktopSnapshot.ProjectId, "Concurrent MCP correction", desktopSnapshot.Start, desktopSnapshot.End!.Value,
+                    desktopSnapshot.Rate + 2, desktopSnapshot.Billable, true, expected: desktopSnapshot);
+                var root = (StackPanel)((ScrollViewer)dialog.Content).Content;
+                var buttons = (StackPanel)root.Children[root.Children.Count - 1];
+                buttons.Children.OfType<Button>().Single(b => b.IsDefault).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var saved = store.Entries().Single(e => e.Id == desktopSnapshot.Id);
+                desktopEditRejected = dialog.IsVisible && saved.Description == "Concurrent MCP correction" && saved.Rate == desktopSnapshot.Rate + 2 && saved.Invoiced;
+            }
+            catch (Exception error) { editFailure = error; }
+            finally { if (dialog.IsVisible) dialog.DialogResult = false; }
+        }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        EditDialog.Entry(window, store, desktopSnapshot);
+        if (editFailure != null) throw new Exception("Desktop edit concurrency probe failed.", editFailure);
+        if (!desktopEditRejected) throw new Exception("A stale desktop dialog overwrote an external correction.");
+        window.SynchronizeTimer();
         Capture(window, Path.Combine(directory, "reports.png"));
         window.ReportTabs.SelectedIndex = 1; window.UpdateLayout(); Capture(window, Path.Combine(directory, "details.png"));
         window.ClientsNav.IsChecked = true; window.UpdateLayout(); Capture(window, Path.Combine(directory, "clients.png"));
@@ -89,7 +118,7 @@ internal static class SmokeTest
             if (window.FromDate.SelectedDate != initialFrom || window.ToDate.SelectedDate != initialTo) throw new Exception("Calendar range did not return to original.");
         }
         window.Close();
-        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: icon, minimized taskbar presence, hidden/maximized restore, single-instance activation, diagnostic logging, timer recovery, Start/Stop UI, external timer synchronization, repeated month/quarter/year navigation, all screens, PNG and Excel exports.");
+        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: window lifecycle, timer controls, external entry edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports.");
     }
     private static void Capture(MainWindow window, string path)
     {

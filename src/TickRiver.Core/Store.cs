@@ -168,20 +168,20 @@ public sealed class Store
     }
 
     public long SaveEntry(long id, long projectId, string description, DateTimeOffset start, DateTimeOffset end,
-        decimal rate, bool billable, bool invoiced)
+        decimal rate, bool billable, bool invoiced, TimeEntry? expected = null)
     {
         if (end <= start) throw new ArgumentException("The end must be after the start. For overnight work, change the end date too.");
         if (rate < 0) throw new ArgumentException("The rate cannot be negative.");
         var project = Projects().Single(p => p.Id == projectId);
-        var existing = id == 0 ? null : Entries().Single(e => e.Id == id);
+        var existing = id == 0 ? null : Entries().SingleOrDefault(e => e.Id == id) ?? throw new ArgumentException("This entry was removed. Read it again before editing.");
         if (existing?.End == null && existing != null) throw new ArgumentException("Stop the timer before editing it.");
         // A rate/currency snapshot survives subsequent client/project changes.
         var currency = existing?.ProjectId == projectId ? existing.Currency : project.Currency;
-        return WriteEntry(id, projectId, description, start, end, rate, currency, billable, invoiced && billable);
+        return WriteEntry(id, projectId, description, start, end, rate, currency, billable, invoiced && billable, expected);
     }
 
     private long WriteEntry(long id, long projectId, string description, DateTimeOffset start, DateTimeOffset? end,
-        decimal rate, string currency, bool billable, bool invoiced)
+        decimal rate, string currency, bool billable, bool invoiced, TimeEntry? expected = null)
     {
         using var connection = Open();
         using var transaction = connection.BeginTransaction();
@@ -197,11 +197,22 @@ public sealed class Store
             VALUES($project,$description,$start,$end,$rate,$currency,$billable,$invoiced); SELECT last_insert_rowid();
             """ : """
             UPDATE entries SET project_id=$project,description=$description,start=$start,end=$end,
-            rate=$rate,currency=$currency,billable=$billable,invoiced=$invoiced WHERE id=$id; SELECT $id;
+            rate=$rate,currency=$currency,billable=$billable,invoiced=$invoiced WHERE id=$id
             """;
+        if (id != 0)
+        {
+            if (expected != null)
+            {
+                command.CommandText += " AND project_id=$oldProject AND description=$oldDescription AND start=$oldStart AND end IS $oldEnd AND rate=$oldRate AND currency=$oldCurrency AND billable=$oldBillable AND invoiced=$oldInvoiced";
+                Add(command, ("$oldProject", expected.ProjectId), ("$oldDescription", expected.Description), ("$oldStart", expected.Start.UtcTicks),
+                    ("$oldEnd", expected.End?.UtcTicks), ("$oldRate", expected.Rate.ToString(CultureInfo.InvariantCulture)), ("$oldCurrency", expected.Currency),
+                    ("$oldBillable", expected.Billable), ("$oldInvoiced", expected.Invoiced));
+            }
+            command.CommandText += " RETURNING id;";
+        }
         Add(command, ("$id", id), ("$project", projectId), ("$description", description.Trim()), ("$start", start.UtcTicks),
             ("$end", end?.UtcTicks), ("$rate", rate.ToString(CultureInfo.InvariantCulture)), ("$currency", currency), ("$billable", billable), ("$invoiced", invoiced));
-        var result = (long)command.ExecuteScalar()!;
+        var result = command.ExecuteScalar() as long? ?? throw new ArgumentException("This entry changed or was removed. Read it again before editing.");
         transaction.Commit();
         return result;
     }

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Reflection;
 using Tomlyn;
 using Tomlyn.Model;
 using Tomlyn.Parsing;
@@ -13,16 +14,18 @@ public static class ClientRegistration
 {
     private static readonly object _lock = new();
     public static IReadOnlyList<string> Register(string executable, string home, string statePath, string? codexHome = null, bool retry = false,
-        string? databasePath = null, string? applicationData = null)
+        string? databasePath = null, string? applicationData = null, string? serverVersion = null)
     {
-        lock (_lock) return RegisterCore(executable, home, statePath, codexHome, retry, databasePath, applicationData);
+        lock (_lock) return RegisterCore(executable, home, statePath, codexHome, retry, databasePath, applicationData, serverVersion);
     }
 
     private static IReadOnlyList<string> RegisterCore(string executable, string home, string statePath, string? codexHome, bool retry,
-        string? databasePath, string? applicationData)
+        string? databasePath, string? applicationData, string? serverVersion)
     {
         if (!File.Exists(executable)) return ["The bundled MCP server was not found. Use a published TickRiver build."];
         executable = Path.GetFullPath(executable);
+        var serverAssembly = Path.ChangeExtension(executable, ".dll");
+        serverVersion ??= File.Exists(serverAssembly) ? AssemblyName.GetAssemblyName(serverAssembly).Version?.ToString(3) ?? "unknown" : "unknown";
         var arguments = new[] { "--database", Path.GetFullPath(databasePath ?? UserStorage.DatabasePath) };
         var originalState = File.Exists(statePath) ? File.ReadAllText(statePath) : null;
         var state = originalState == null ? new JsonObject() : JsonNode.Parse(originalState)?.AsObject() ?? new JsonObject();
@@ -50,8 +53,10 @@ public static class ClientRegistration
                     : UpdateJson(original ?? "{}", executable, arguments, ownedCommand, ownedArguments, !handled || retry, client.Name == "Claude Code");
                 if (change.Text != null) WriteConfig(client.Config, original, change.Text);
                 state[client.Name] = new JsonObject { ["checked_at"] = DateTimeOffset.UtcNow.ToString("O"), ["config_path"] = Path.GetFullPath(client.Config),
-                    ["command"] = change.Command ?? ownedCommand, ["args"] = JsonSerializer.SerializeToNode(change.Arguments ?? ownedArguments) };
-                results.Add($"{client.Name}: {change.Status}");
+                    ["command"] = change.Command ?? ownedCommand, ["args"] = JsonSerializer.SerializeToNode(change.Arguments ?? ownedArguments),
+                    ["server_version"] = change.Command == null ? previous?["server_version"]?.GetValue<string>() : serverVersion };
+                var versionChanged = change.Command != null && previous?["server_version"]?.GetValue<string>() != serverVersion;
+                results.Add($"{client.Name}: {change.Status}" + (versionChanged ? $" Server version {serverVersion}; reconnect the client to refresh available tools." : ""));
             }
             catch (Exception error) { results.Add($"{client.Name}: could not connect — {error.Message}"); }
         }

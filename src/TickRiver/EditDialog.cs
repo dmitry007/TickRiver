@@ -76,7 +76,7 @@ internal sealed class EditDialog : Window
         project.SelectionChanged += (_, _) => { if (project.SelectedItem is Project p) { rate.Text = (entry?.ProjectId == p.Id ? entry.Rate : p.EffectiveRate).ToString(CultureInfo.CurrentCulture); billable.IsChecked = entry?.ProjectId == p.Id ? entry.Billable : p.Billable; } };
         var dialog = new EditDialog(owner, entry == null ? "Add time" : "Edit time entry", () => {
             if (project.SelectedItem is not Project p || startDate.SelectedDate == null || endDate.SelectedDate == null) throw new ArgumentException("Select a project and both dates.");
-            store.SaveEntry(entry?.Id ?? 0, p.Id, description.Text, TimeFormat.ParseLocal(startDate.SelectedDate.Value, startTime.Text, entry?.Start), TimeFormat.ParseLocal(endDate.SelectedDate.Value, endTime.Text, entry?.End), Rate(rate.Text), billable.IsChecked == true, invoiced.IsChecked == true);
+            store.SaveEntry(entry?.Id ?? 0, p.Id, description.Text, TimeFormat.ParseLocal(startDate.SelectedDate.Value, startTime.Text, entry?.Start), TimeFormat.ParseLocal(endDate.SelectedDate.Value, endTime.Text, entry?.End), Rate(rate.Text), billable.IsChecked == true, invoiced.IsChecked == true, expected: entry);
         });
         dialog.Field("Project · Client", project); dialog.Field("Description (optional)", description);
         var start = new Grid(); start.ColumnDefinitions.Add(new ColumnDefinition()); start.ColumnDefinitions.Add(new ColumnDefinition()); start.Children.Add(startDate); start.Children.Add(startTime); Grid.SetColumn(startTime, 1);

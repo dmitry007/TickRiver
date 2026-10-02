@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using Microsoft.Data.Sqlite;
 using TickRiver.Core;
 
 namespace TickRiver;
@@ -17,7 +18,8 @@ public partial class MainWindow : Window
     private readonly System.Drawing.Icon? _trayIcon;
     private bool _ready, _exiting, _changingFilters, _settingRange;
     private int _rangeMonths;
-    private long _lastEntryId;
+    private long _lastDataVersion;
+    private readonly SqliteConnection _changeMonitor;
     private TimeEntry? _running;
     private Report? _report;
 
@@ -25,6 +27,8 @@ public partial class MainWindow : Window
     {
         _store = store;
         InitializeComponent();
+        _changeMonitor = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = store.Path, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
+        _changeMonitor.Open();
         RangePreset.ItemsSource = new[] { "Today", "Yesterday", "This week", "Last week", "This month", "Last month", "This quarter", "Last quarter", "This year", "Last year", "Custom range" };
         if (tray)
         {
@@ -42,7 +46,7 @@ public partial class MainWindow : Window
         Chart.DayClicked += day => { if (_report == null) return; ReportGrid.ItemsSource = _report.Rows.Where(r => r.Day == day).ToArray(); ReportTabs.SelectedIndex = 1; StatusText.Text = $"Showing {day:MMMM d, yyyy}. Apply the report again to show the full range."; };
         _ready = true; Refresh(); RangePreset.SelectedItem = "This month"; TrackerNav.IsChecked = true;
         Closing += OnClosing;
-        Closed += (_, _) => { _clock.Stop(); _tray?.Dispose(); _trayIcon?.Dispose(); };
+        Closed += (_, _) => { _clock.Stop(); _tray?.Dispose(); _trayIcon?.Dispose(); _changeMonitor.Dispose(); };
     }
 
     internal void Restore() { Show(); if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate(); }
@@ -61,8 +65,8 @@ public partial class MainWindow : Window
 
     internal void Refresh()
     {
+        _lastDataVersion = ReadDataVersion();
         var projects = _store.Projects(); var clients = _store.Clients(); var entries = _store.Entries();
-        _lastEntryId = entries.Select(e => e.Id).DefaultIfEmpty().Max();
         var selectedTimer = (TimerProject.SelectedItem as Project)?.Id;
         var clientFilter = (ClientFilter.SelectedItem as Client)?.Id ?? 0;
         var projectFilter = (ProjectFilter.SelectedItem as Project)?.Id ?? 0;
@@ -100,7 +104,7 @@ public partial class MainWindow : Window
         try
         {
             var current = _store.Entries(runningOnly: true).SingleOrDefault();
-            if (current?.Id != _running?.Id || _store.LatestEntryId() != _lastEntryId)
+            if (current?.Id != _running?.Id || ReadDataVersion() != _lastDataVersion)
             {
                 var stopped = _running != null && current == null;
                 Refresh(); if (stopped) DescriptionBox.Clear();
@@ -109,6 +113,11 @@ public partial class MainWindow : Window
             else UpdateClock();
         }
         catch (Exception error) { StatusText.Text = "Could not refresh timer: " + error.Message; }
+    }
+    private long ReadDataVersion()
+    {
+        using var command = _changeMonitor.CreateCommand(); command.CommandText = "PRAGMA data_version";
+        return (long)command.ExecuteScalar()!;
     }
     private void Try(Action action)
     {

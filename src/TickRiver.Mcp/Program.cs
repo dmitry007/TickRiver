@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using ModelContextProtocol.Protocol;
 using TickRiver.Core;
 using TickRiver.Mcp;
 
@@ -17,6 +18,7 @@ try
     builder.Services.AddSingleton(new Store(path, readOnly: true));
 }
 catch (Exception error) { Console.Error.WriteLine($"TickRiver could not open its database at {path}: {error.Message}"); return 1; }
-builder.Services.AddMcpServer().WithStdioServerTransport().WithTools<TimeTools>().WithTools<TimerTools>();
+builder.Services.AddMcpServer(options => options.ServerInfo = new Implementation { Name = "TickRiver", Version = typeof(TimeTools).Assembly.GetName().Version!.ToString(3) })
+    .WithStdioServerTransport().WithTools<TimeTools>().WithTools<TimerTools>().WithTools<EntryTools>();
 await builder.Build().RunAsync();
 return 0;

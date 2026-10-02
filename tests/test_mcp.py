@@ -55,10 +55,12 @@ def tool(name, arguments):
 try:
     initialized = request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "TickRiver-test", "version": "1"}})
     assert "result" in initialized, initialized
+    assert initialized["result"]["serverInfo"] == {"name": "TickRiver", "version": "0.1.3"}
     process.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n'); process.stdin.flush()
     tools = request("tools/list", {})["result"]["tools"]
-    assert {t["name"] for t in tools} == {"get_context", "list_clients", "list_projects", "get_hours", "list_entries", "start_timer", "stop_timer"}
-    assert all(t["annotations"]["readOnlyHint"] == (t["name"] not in ["start_timer", "stop_timer"]) for t in tools)
+    assert {t["name"] for t in tools} == {"get_context", "list_clients", "list_projects", "get_hours", "list_entries", "get_entry", "edit_entry", "start_timer", "stop_timer"}
+    assert all(t["annotations"]["readOnlyHint"] == (t["name"] not in ["start_timer", "stop_timer", "edit_entry"]) for t in tools)
+    assert next(t for t in tools if t["name"] == "edit_entry")["annotations"]["destructiveHint"]
     assert tool("list_clients", {})["clients"][0]["name"] == "Client Ω"
     assert tool("list_projects", {})["projects"][0]["inherits_client_rate"]
     report = tool("get_hours", {"period": "custom", "from": "2026-09-01", "to": "2026-09-30"})
@@ -73,8 +75,22 @@ try:
     for period in ["last_week", "this_month", "this_quarter", "this_year"]:
         assert "total_seconds" in tool("get_hours", {"period": period, "grouping": "month"})
     with sqlite3.connect(database) as db: assert db.execute("SELECT COUNT(*) FROM entries").fetchone()[0] == 1
+    original = tool("get_entry", {"entryId": 1})
+    assert len(original["description"]) > 2000 and original["duration"] == "01:30:30"
+    edited = tool("edit_entry", {"entryId": 1, "expectedVersion": original["version"], "description": "Corrected work Ω"})
+    assert edited["status"] == "updated" and edited["description"] == "Corrected work Ω" and edited["rate"] == 125
+    assert edited["start"] == original["start"] and edited["end"] == original["end"]
+    assert request("tools/call", {"name": "edit_entry", "arguments": {"entryId": 1, "expectedVersion": original["version"], "description": "Stale overwrite"}})["result"]["isError"]
+    for invalid_end in ["2026-09-15T10:00:00", "2026-09-15T10:00:00-07:00 garbage", "2026-09-15T08:00:00-07:00", "2026-09-15T11:00:00.5-07:00"]:
+        assert request("tools/call", {"name": "edit_entry", "arguments": {"entryId": 1, "expectedVersion": edited["version"], "end": invalid_end}})["result"]["isError"]
+    edited = tool("edit_entry", {"entryId": 1, "expectedVersion": edited["version"], "end": "2026-09-15T11:00:00-07:00", "billable": False})
+    assert edited["seconds"] == 7200 and not edited["billable"]
+    assert tool("get_hours", {"period": "custom", "from": "2026-09-01", "to": "2026-09-30"})["total_seconds"] == 7200
     timer = tool("start_timer", {"project": "Website Ω", "description": "Actual MCP timer"})
     assert timer["status"] == "started"
+    running = tool("get_entry", {"entryId": timer["entry_id"]})
+    assert running["running"]
+    assert request("tools/call", {"name": "edit_entry", "arguments": {"entryId": timer["entry_id"], "expectedVersion": running["version"], "description": "Must not edit"}})["result"]["isError"]
     assert tool("start_timer", {"projectId": 1})["status"] == "already_running"
     assert tool("get_context", {})["active_timer"]["entry_id"] == timer["entry_id"]
     assert request("tools/call", {"name": "stop_timer", "arguments": {"entryId": timer["entry_id"] + 1}})["result"]["isError"]
@@ -85,7 +101,7 @@ try:
     assert tool("get_context", {})["active_timer"]["entry_id"] == replacement["entry_id"]
     tool("stop_timer", {"entryId": replacement["entry_id"]})
     assert tool("get_context", {})["active_timer"] is None
-    print("PASS: real MCP initialization, discovery, annotations, Unicode, totals, periods, bounds, start/stop and stale-timer guards.")
+    print("PASS: real MCP discovery, annotations, reports, full-entry reads, edits, stale/time guards and timer controls.")
 finally:
     process.stdin.close()
     try: process.wait(timeout=5)
