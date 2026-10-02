@@ -7,7 +7,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/TickRiver.ico</ApplicationIcon>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../TickRiver.Core/TickRiver.Core.csproj" /></ItemGroup>
   <ItemGroup><Resource Include="Assets/TickRiver.ico" /></ItemGroup>

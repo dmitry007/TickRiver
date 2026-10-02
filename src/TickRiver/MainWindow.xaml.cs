@@ -221,7 +221,8 @@ public partial class MainWindow : Window
         try
         {
             var results = await System.Threading.Tasks.Task.Run(() => ClientRegistration.Register(Path.Combine(AppContext.BaseDirectory, "TickRiver.Mcp.exe"),
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), Path.Combine(Path.GetDirectoryName(_store.Path)!, "ai-connections.json"), Environment.GetEnvironmentVariable("CODEX_HOME"), retry));
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), Path.Combine(Path.GetDirectoryName(_store.Path)!, "ai-connections.json"), Environment.GetEnvironmentVariable("CODEX_HOME"), retry,
+                _store.Path, Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)));
             StatusText.Text = string.Join("  ", results);
             if (retry) System.Windows.MessageBox.Show(this, string.Join(Environment.NewLine + Environment.NewLine, results) + "\n\nTry asking: What were my hours last week? Start the timer for Website maintenance.\n\nReports are read-only; timer tools can start and stop tracking. Requested data is returned to the AI client.", "AI connections");
         }

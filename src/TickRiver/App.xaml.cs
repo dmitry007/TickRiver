@@ -22,8 +22,7 @@ public partial class App : System.Windows.Application
         if (!_instance.IsFirst) { Shutdown(); return; }
         try
         {
-            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TickRiver", "tickriver.sqlite");
-            var window = new MainWindow(new Core.Store(path));
+            var window = new MainWindow(Core.UserStorage.Open());
             window.Loaded += async (_, _) => await window.ConnectClients(false);
             MainWindow = window; window.Show();
         }

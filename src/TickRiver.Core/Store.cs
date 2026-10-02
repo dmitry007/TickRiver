@@ -235,7 +235,7 @@ public sealed class Store
         if (System.IO.Path.GetFullPath(path).Equals(Path, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Choose a backup file separate from the live database.");
         using var source = Open();
-        using var target = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+        using var target = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
         target.Open(); source.BackupDatabase(target);
     }
 
