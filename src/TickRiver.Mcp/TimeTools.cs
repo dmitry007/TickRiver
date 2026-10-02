@@ -20,7 +20,7 @@ public sealed class TimeTools(Store store)
     {
         var active = _store.Entries(runningOnly: true).SingleOrDefault();
         return Json(new { ServerVersion = typeof(TimeTools).Assembly.GetName().Version!.ToString(3), Today = DateTime.Today.ToString("yyyy-MM-dd"), TimeZone = TimeZoneInfo.Local.Id,
-            WeekStartsOn = "Monday", ReportingReadOnly = true, TimerControlEnabled = true, EntryEditingEnabled = true, RunningIncludedInReports = false,
+            WeekStartsOn = "Monday", ReportingReadOnly = true, TimerControlEnabled = true, EntryEditingEnabled = true, EntryAddingEnabled = true, RunningIncludedInReports = false,
             ActiveTimer = active == null ? null : new { EntryId = active.Id, active.ProjectId, Project = Text(active.ProjectName), Client = Text(active.ClientName),
                 Description = Text(active.Description), Start = active.Start.ToLocalTime(), ElapsedSeconds = Math.Max(0, (TimeFormat.Now.UtcTicks - active.Start.UtcTicks) / TimeSpan.TicksPerSecond) } });
     }

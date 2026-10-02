@@ -69,6 +69,13 @@ internal static class SmokeTest
         window.RangePreset.SelectedItem = "Custom range";
         window.ReportsNav.IsChecked = true; window.UpdateLayout();
         if (window.Chart.Report?.Seconds <= 0) throw new Exception("Report not populated.");
+        var manualWriter = new Store(store.Path);
+        var manualStart = TimeFormat.ParseLocal(month, "13:00:00");
+        var manualId = manualWriter.SaveEntry(0, project, "Imported historical time", manualStart, manualStart.AddSeconds(2894), 125, true, false);
+        window.SynchronizeTimer();
+        if (!((System.Windows.Data.ListCollectionView)window.EntriesGrid.ItemsSource).Cast<TimeEntry>().Any(e => e.Id == manualId)
+            || !window.Chart.Report!.Rows.Any(r => r.Entry.Id == manualId && r.Seconds == 2894))
+            throw new Exception("UI tracker or report missed an external historical addition.");
         var corrected = store.Entries().First(e => e.End > e.Start && e.Start.LocalDateTime >= month && e.Start.LocalDateTime < month.AddMonths(1));
         var writer = new Store(store.Path);
         writer.SaveEntry(corrected.Id, corrected.ProjectId, "Corrected externally", corrected.Start, corrected.End!.Value, corrected.Rate + 1, corrected.Billable, corrected.Invoiced, expected: corrected);
@@ -134,7 +141,7 @@ internal static class SmokeTest
             "Grok Build: not detected."]) { ShowActivated = false, Width = 560, Height = 480 };
         warnings.Show(); Capture(warnings, Path.Combine(directory, "ai-connections-warnings.png")); warnings.Close();
         window.Close();
-        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: window lifecycle, timer controls, external entry edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports.");
+        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports.");
     }
     private static void Capture(Window window, string path)
     {

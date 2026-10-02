@@ -55,12 +55,13 @@ def tool(name, arguments):
 try:
     initialized = request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "TickRiver-test", "version": "1"}})
     assert "result" in initialized, initialized
-    assert initialized["result"]["serverInfo"] == {"name": "TickRiver", "version": "0.1.3"}
+    assert initialized["result"]["serverInfo"] == {"name": "TickRiver", "version": "0.1.4"}
     process.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n'); process.stdin.flush()
     tools = request("tools/list", {})["result"]["tools"]
-    assert {t["name"] for t in tools} == {"get_context", "list_clients", "list_projects", "get_hours", "list_entries", "get_entry", "edit_entry", "start_timer", "stop_timer"}
-    assert all(t["annotations"]["readOnlyHint"] == (t["name"] not in ["start_timer", "stop_timer", "edit_entry"]) for t in tools)
+    assert {t["name"] for t in tools} == {"get_context", "list_clients", "list_projects", "get_hours", "list_entries", "get_entry", "edit_entry", "add_entry", "start_timer", "stop_timer"}
+    assert all(t["annotations"]["readOnlyHint"] == (t["name"] not in ["start_timer", "stop_timer", "edit_entry", "add_entry"]) for t in tools)
     assert next(t for t in tools if t["name"] == "edit_entry")["annotations"]["destructiveHint"]
+    assert not next(t for t in tools if t["name"] == "add_entry")["annotations"]["destructiveHint"]
     assert tool("list_clients", {})["clients"][0]["name"] == "Client Ω"
     assert tool("list_projects", {})["projects"][0]["inherits_client_rate"]
     report = tool("get_hours", {"period": "custom", "from": "2026-09-01", "to": "2026-09-30"})
@@ -86,6 +87,33 @@ try:
     edited = tool("edit_entry", {"entryId": 1, "expectedVersion": edited["version"], "end": "2026-09-15T11:00:00-07:00", "billable": False})
     assert edited["seconds"] == 7200 and not edited["billable"]
     assert tool("get_hours", {"period": "custom", "from": "2026-09-01", "to": "2026-09-30"})["total_seconds"] == 7200
+    addition = {"projectId": 1, "start": "2026-08-30T10:00:00-07:00", "end": "2026-08-30T10:48:14-07:00"}
+    added = tool("add_entry", addition)
+    assert added["status"] == "added" and added["seconds"] == 2894 and added["description"] == ""
+    assert added["rate"] == 125 and added["currency"] == "USD" and added["billable"] and not added["invoiced"]
+    assert tool("get_entry", {"entryId": added["entry_id"]}) == dict(added, status="found")
+    august = tool("get_hours", {"period": "custom", "from": "2026-08-01", "to": "2026-08-31"})
+    assert august["total_seconds"] == 2894
+    august_entries = tool("list_entries", {"period": "custom", "from": "2026-08-01", "to": "2026-08-31"})["entries"]
+    assert len(august_entries) == 1 and august_entries[0]["entry_id"] == added["entry_id"]
+    for invalid in [addition, dict(addition, start="2026-08-30T10:20:00-07:00"),
+                    dict(addition, projectId=999), dict(addition, end=addition["start"]),
+                    dict(addition, end="2026-08-30T09:00:00-07:00"), dict(addition, rate=-1), dict(addition, rate=100000001),
+                    dict(addition, start="2026-08-30T10:00:00"), dict(addition, end="2026-08-30T10:48:14.5-07:00")]:
+        assert request("tools/call", {"name": "add_entry", "arguments": invalid})["result"]["isError"]
+    with sqlite3.connect(database) as db:
+        assert db.execute("SELECT COUNT(*) FROM entries").fetchone()[0] == 2
+        db.execute("UPDATE projects SET archived=1 WHERE id=1")
+    separate = dict(addition, start="2026-08-30T11:00:00-07:00", end="2026-08-30T11:00:03-07:00")
+    assert request("tools/call", {"name": "add_entry", "arguments": separate})["result"]["isError"]
+    with sqlite3.connect(database) as db:
+        db.execute("UPDATE projects SET archived=0 WHERE id=1")
+        db.execute("UPDATE clients SET archived=1 WHERE id=1")
+    assert request("tools/call", {"name": "add_entry", "arguments": separate})["result"]["isError"]
+    with sqlite3.connect(database) as db: db.execute("UPDATE clients SET archived=0 WHERE id=1")
+    overridden = tool("add_entry", dict(separate, description="Imported Ω", rate=80, billable=False, invoiced=True))
+    assert overridden["seconds"] == 3 and overridden["rate"] == 80 and not overridden["billable"] and not overridden["invoiced"]
+    assert tool("get_context", {})["entry_adding_enabled"]
     timer = tool("start_timer", {"project": "Website Ω", "description": "Actual MCP timer"})
     assert timer["status"] == "started"
     running = tool("get_entry", {"entryId": timer["entry_id"]})
@@ -93,6 +121,7 @@ try:
     assert request("tools/call", {"name": "edit_entry", "arguments": {"entryId": timer["entry_id"], "expectedVersion": running["version"], "description": "Must not edit"}})["result"]["isError"]
     assert tool("start_timer", {"projectId": 1})["status"] == "already_running"
     assert tool("get_context", {})["active_timer"]["entry_id"] == timer["entry_id"]
+    assert request("tools/call", {"name": "add_entry", "arguments": {"projectId": 1, "start": timer["start"], "end": "2099-01-01T00:00:00Z"}})["result"]["isError"]
     assert request("tools/call", {"name": "stop_timer", "arguments": {"entryId": timer["entry_id"] + 1}})["result"]["isError"]
     stopped = tool("stop_timer", {"entryId": timer["entry_id"]})
     assert stopped["status"] == "stopped" and stopped["duration"] is not None
@@ -101,7 +130,7 @@ try:
     assert tool("get_context", {})["active_timer"]["entry_id"] == replacement["entry_id"]
     tool("stop_timer", {"entryId": replacement["entry_id"]})
     assert tool("get_context", {})["active_timer"] is None
-    print("PASS: real MCP discovery, annotations, reports, full-entry reads, edits, stale/time guards and timer controls.")
+    print("PASS: real MCP discovery, annotations, reports, historical additions/readback, overlap/archive/time guards, full-entry reads, edits and timer controls.")
 finally:
     process.stdin.close()
     try: process.wait(timeout=5)
