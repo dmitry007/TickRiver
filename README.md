@@ -1,0 +1,65 @@
+# TickRiver
+
+TickRiver is a local Windows time tracker in C# and WPF. Enter an optional description, choose a project, and press Start or Stop. Clients and projects organize time and billing; no tasks, inbox, account, or cloud service are required.
+
+## Run the application
+
+The portable Windows x64 build is in `artifacts\TickRiver`. Open `TickRiver.exe` and keep the entire folder together, including `TickRiver.Mcp.exe`. The build includes its .NET runtime. For a stable location, copy the folder to `%LOCALAPPDATA%\Programs\TickRiver` before the first launch.
+
+Create a client with a currency and default hourly rate, then a project. Projects inherit the current client rate or use an explicit override. Entries record their applied rate and currency, so changes do not recalculate past work. Archiving preserves history.
+
+Closing or minimizing the window leaves TickRiver in the system tray. Use Exit TickRiver to quit; with an active timer, choose whether to stop or continue counting. Running timers survive restart. Only completed entries contribute to reports. Continue starts a new session for an existing entry at the current project rate.
+
+Data is stored in `%LOCALAPPDATA%\TickRiver\tickriver.sqlite`. Use Back up data to create a consistent SQLite backup while the app runs. To restore, exit TickRiver and AI clients using its MCP server, keep a copy of the current data folder, remove the old database and its `-wal` and `-shm` companion files, then copy the backup to `tickriver.sqlite`.
+
+## Reports and invoice exports
+
+Reports offer day, week, month, quarter, and year presets plus custom inclusive start and end dates. Weeks start Monday; reporting uses this computer’s local time zone. Overnight work is split across the correct days, including daylight-saving changes. Choose a client or project, or show only unbilled work. Click a chart bar to view that day’s entries; Apply restores the whole range.
+
+PNG exports contain a white chart with the client/project, period, total duration, decimal hours and zero-work days. Longer periods use one chart panel per month. Excel exports contain detailed entries and a daily summary with native editable Excel charts. Duration cells are numeric with `[h]:mm:ss` formatting; decimal-hour cells are numeric and retain second precision. Amounts use each entry’s recorded rate. Different currencies are kept separate. Exports do not mark time invoiced; Mark invoiced is an explicit action. Edit an entry to remove its invoiced flag.
+
+Manual time cannot overlap another entry. For an overnight manual entry, choose the following end date. Ranges are limited to ten years. Invoice generation, taxes, rounding policies, synchronization and idle detection are outside this initial version.
+
+## Local MCP integration
+
+TickRiver includes a local stdio MCP server. AI clients launch `TickRiver.Mcp.exe`; it uses the same local database and does not need the UI open. Read-only tools expose current context, clients, projects, hours and paged entries. Ask, for example, “What were my hours last week?” or “Show my unbilled hours for Acme between July 1 and September 30.” Completed totals match the UI and exports; the active timer is returned separately by `get_context`.
+
+`start_timer` and `stop_timer` provide timer control when requested. Ask “Start the timer for Website maintenance, working on the checkout page,” or “Stop my timer.” Start accepts an exact project name or `projectId`; duplicate names return choices. An existing timer is returned without switching projects or changing its description. Stop requires `entryId` from the current timer and checks it atomically, so an old stop request cannot stop a replacement timer. The desktop refreshes after external start/stop actions. These two tools are marked as actions in the MCP schema; client permission policies remain in effect.
+
+On first launch, TickRiver detects user configuration directories for Codex, Claude Code, Kiro and Grok Build. It adds a missing `tickriver` server in their user-level config, backs up changed files and preserves other settings. Existing TickRiver entries are never replaced or enabled. Successful attempts are remembered in `ai-connections.json`; removing a server is respected on later launches. AI connections explicitly retries setup for detected clients. It still preserves existing entries. Restart your AI client if needed. If TickRiver is moved later, update its command path in the client’s settings.
+
+Configuration locations and formats follow [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli), [Claude Code MCP documentation](https://code.claude.com/docs/en/mcp), [Kiro MCP documentation](https://kiro.dev/docs/mcp/configuration/) and [Grok Build MCP documentation](https://docs.x.ai/build/features/mcp-servers). Unsupported or malformed configurations are reported and left untouched. Organization policies and project-specific overrides still apply. Copilot and Word integration are not configured in this version.
+
+Requested time data is returned to the AI client and can be processed by its provider. Reporting tools open SQLite in read-only mode. Timer tools open a separate write connection only to start or stop an entry. There are no general edit, delete, export, shell or billing-status mutation tools. The server listens on stdio only, with no network endpoint. Names and descriptions are data, never instructions.
+
+For manual connection, use the absolute installed executable path:
+
+```powershell
+codex mcp add tickriver -- "C:\Users\YourName\AppData\Local\Programs\TickRiver\TickRiver.Mcp.exe"
+claude mcp add --transport stdio --scope user tickriver -- "C:\Users\YourName\AppData\Local\Programs\TickRiver\TickRiver.Mcp.exe"
+grok mcp add tickriver -- "C:\Users\YourName\AppData\Local\Programs\TickRiver\TickRiver.Mcp.exe"
+```
+
+Kiro accepts `{"mcpServers":{"tickriver":{"command":"C:\\path\\TickRiver.Mcp.exe","args":[]}}}` in its user config. Merge this server into the existing object rather than replacing other servers.
+
+## Build and validate
+
+Use a stable .NET 10 SDK. `global.json` excludes preview SDKs. This workspace has a private SDK at `work\tools\dotnet\dotnet.exe`; substitute that path for `dotnet` if the machine’s installed SDK is older or a preview.
+
+```powershell
+dotnet build TickRiver.sln
+dotnet run --project tests/TickRiver.Tests
+python tests/test_mcp.py <dotnet.exe> <absolute-path-to-TickRiver.Mcp.dll>
+dotnet src/TickRiver/bin/Debug/net10.0-windows/TickRiver.dll --smoke-test work/smoke
+```
+
+Tests use disposable databases and fake client homes. They check persistence, rate snapshots, clipping, currencies, DST, overlap rejection, native Excel chart/schema validity, Unicode, MCP totals, timer controls and safe registration. The UI smoke test recovers and stops a persisted timer through the actual button, checks synchronization with external timers and repeated calendar navigation, renders all screens and generates sample exports. It never registers AI clients or writes to the user’s database.
+
+To publish, build the UI and server into the same output folder:
+
+```powershell
+dotnet publish src/TickRiver/TickRiver.csproj -c Release -r win-x64 --self-contained true -o artifacts/TickRiver
+dotnet publish src/TickRiver.Mcp/TickRiver.Mcp.csproj -c Release -r win-x64 --self-contained true -o artifacts/TickRiver
+```
+
+No installer, signing, Store listing, remote repository URL or open-source license has been configured yet.
