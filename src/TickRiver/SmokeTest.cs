@@ -107,6 +107,7 @@ internal static class SmokeTest
         window.SynchronizeTimer();
         Capture(window, Path.Combine(directory, "reports.png"));
         window.ReportTabs.SelectedIndex = 1; window.UpdateLayout(); Capture(window, Path.Combine(directory, "details.png"));
+        CheckReportClipboard(window, directory, store);
         window.ClientsNav.IsChecked = true; window.UpdateLayout(); Capture(window, Path.Combine(directory, "clients.png"));
         window.ProjectsNav.IsChecked = true; window.UpdateLayout(); Capture(window, Path.Combine(directory, "projects.png"));
         var report = window.Chart.Report!;
@@ -167,7 +168,67 @@ internal static class SmokeTest
             "Grok Build: not detected."]) { ShowActivated = false, Width = 560, Height = 480 };
         warnings.Show(); Capture(warnings, Path.Combine(directory, "ai-connections-warnings.png")); warnings.Close();
         window.Close();
-        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names.");
+        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
+    }
+    private static void CheckReportClipboard(MainWindow window, string directory, Store store)
+    {
+        var items = window.CopyColumnsMenu.Items.Cast<MenuItem>().ToArray();
+        if (items.Where(i => !i.IsChecked).Select(i => (string)i.Tag).SequenceEqual(["ProjectClient", "Billing"]) == false)
+            throw new Exception("Invoice copy defaults include project/client or billing, or omit another column.");
+        window.CopyColumnsButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (!window.CopyColumnsMenu.IsOpen || window.CopyColumnsMenu.PlacementTarget != window.CopyColumnsButton
+            || items.Any(i => !i.IsCheckable || !i.StaysOpenOnClick)) throw new Exception("Copy arrow did not open a persistent column checklist.");
+        window.CopyColumnsMenu.IsOpen = false;
+        var rows = window.ReportGrid.Items.Cast<ReportRow>().ToArray();
+        var first = rows[0] with { Entry = rows[0].Entry with { Description = "München & <review> \"quoted\" 🚀\tvalue\r\nSecond line" } };
+        var data = ReportClipboard.Create([first], ["Date", "Description", "Duration"]);
+        var html = (string)data.GetData(DataFormats.Html)!;
+        var bytes = System.Text.Encoding.UTF8.GetBytes(html);
+        var offsets = html[..html.IndexOf("<html>", StringComparison.Ordinal)].Split("\r\n", StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1).Select(s => int.Parse(s[(s.IndexOf(':') + 1)..], System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        var fragment = System.Text.Encoding.UTF8.GetString(bytes[offsets[2]..offsets[3]]);
+        if (offsets[1] != bytes.Length || !System.Text.Encoding.UTF8.GetString(bytes[offsets[0]..offsets[1]]).StartsWith("<html>")
+            || !fragment.StartsWith("<table ") || !fragment.EndsWith("</table>") || fragment.Contains("<review>") || !fragment.Contains("&lt;review&gt;")
+            || !fragment.Contains("<br>Second line") || fragment.Contains("Project · Client") || fragment.Contains("Billing"))
+            throw new Exception("Clipboard HTML has incorrect byte offsets, escaping, columns, or line breaks.");
+        var text = (string)data.GetData(DataFormats.UnicodeText)!;
+        if (!text.StartsWith("Date\tDescription\tDuration\r\n") || !text.Contains("\"München & <review> \"\"quoted\"\" 🚀\tvalue\r\nSecond line\""))
+            throw new Exception("Clipboard TSV lost Unicode, embedded tabs, quotes, or newlines.");
+        File.WriteAllText(Path.Combine(directory, "clipboard.html-format.txt"), html);
+        File.WriteAllText(Path.Combine(directory, "clipboard.tsv"), text);
+        try { ReportClipboard.Create([], ["Date"]); throw new Exception("Empty report copy was accepted."); }
+        catch (ArgumentException) { }
+        try { ReportClipboard.Create(rows, []); throw new Exception("Copy with no columns was accepted."); }
+        catch (ArgumentException) { }
+        foreach (var item in items.Where(i => i.IsChecked)) { item.IsChecked = false; item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)); }
+        if (window.CopyDataButton.IsEnabled) throw new Exception("Copy remains enabled with no columns.");
+        foreach (var item in items.Where(i => (string)i.Tag is "Description" or "Duration")) { item.IsChecked = true; item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)); }
+        var restored = new MainWindow(new Store(store.Path), false);
+        try
+        {
+            if (!restored.CopyColumnsMenu.Items.Cast<MenuItem>().Where(i => i.IsChecked).Select(i => (string)i.Tag).SequenceEqual(["Description", "Duration"]))
+                throw new Exception("Copy column selection was not restored.");
+        }
+        finally { restored.Close(); }
+        var original = System.Windows.Clipboard.GetDataObject();
+        try
+        {
+            // A sorted day drilldown must copy only its displayed rows in that order.
+            window.ReportGrid.ItemsSource = rows.Where(r => r.Day == rows[0].Day).ToArray();
+            window.ReportGrid.Items.SortDescriptions.Add(new System.ComponentModel.SortDescription(nameof(ReportRow.Description), System.ComponentModel.ListSortDirection.Ascending));
+            var displayed = window.ReportGrid.Items.Cast<ReportRow>().ToArray();
+            window.CopyDataButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var expected = ReportClipboard.Create(displayed, ["Description", "Duration"]);
+            if (System.Windows.Clipboard.GetText() != (string)expected.GetData(DataFormats.UnicodeText)!
+                || !System.Windows.Clipboard.ContainsData(DataFormats.Html) || !window.StatusText.Text.StartsWith($"Copied {displayed.Length} detailed"))
+                throw new Exception($"Copy button failed: text matches={System.Windows.Clipboard.GetText() == (string)expected.GetData(DataFormats.UnicodeText)!}; HTML={System.Windows.Clipboard.ContainsData(DataFormats.Html)}; status={window.StatusText.Text}");
+        }
+        finally
+        {
+            if (original != null) System.Windows.Clipboard.SetDataObject(original, true); else System.Windows.Clipboard.Clear();
+            window.ReportGrid.Items.SortDescriptions.Clear(); window.RefreshReport();
+        }
+        foreach (var item in items) { item.IsChecked = (string)item.Tag is not ("ProjectClient" or "Billing"); item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)); }
     }
     private static void Capture(Window window, string path)
     {

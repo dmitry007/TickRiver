@@ -22,6 +22,8 @@ PNG exports contain a white chart with the client/project, period, total duratio
 
 Export filenames include the selected client, project (when selected), and date range, for example `TickRiver-Acme-Website-2026-06-01-2026-10-31.xlsx`. A client-only report omits the project; an unfiltered report uses just TickRiver and the dates. PNG uses the same naming. Characters that cannot appear in filenames are replaced with underscores; long client/project names are shortened to keep filenames within Windows limits.
 
+Use **Copy data** to paste the displayed detailed entries, with column headers, into Word as an editable table or into Excel. Its arrow opens a column checklist; Project · Client and Billing start unchecked, and your choices are remembered for this database. Copy follows the displayed row order and any chart-day drilldown. The clipboard includes an HTML table and tab-separated Unicode text. Copying does not mark entries invoiced.
+
 Manual time cannot overlap another entry. For an overnight manual entry, choose the following end date. Ranges are limited to ten years. Invoice generation, taxes, rounding policies, synchronization and idle detection are outside this initial version.
 
 ## Local MCP integration

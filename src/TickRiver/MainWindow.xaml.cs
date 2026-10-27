@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -27,6 +28,23 @@ public partial class MainWindow : Window
     {
         _store = store;
         InitializeComponent();
+        var selectedColumns = ReportClipboard.Columns.Where(c => c.Key is not ("ProjectClient" or "Billing")).Select(c => c.Key).ToArray();
+        var copySettings = store.Path + ".copy-columns.json";
+        try { if (File.Exists(copySettings)) selectedColumns = JsonSerializer.Deserialize<string[]>(File.ReadAllText(copySettings)) ?? selectedColumns; }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { StatusText.Text = "Could not load copy columns: " + error.Message; }
+        foreach (var column in ReportClipboard.Columns)
+        {
+            var item = new MenuItem { Header = column.Header, Tag = column.Key, IsCheckable = true, StaysOpenOnClick = true, IsChecked = selectedColumns.Contains(column.Key) };
+            item.Click += (_, _) => Try(() => {
+                var selected = CopyColumnsMenu.Items.Cast<MenuItem>().Where(i => i.IsChecked).Select(i => (string)i.Tag).ToArray();
+                CopyDataButton.IsEnabled = selected.Length > 0;
+                var temporary = copySettings + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try { File.WriteAllText(temporary, JsonSerializer.Serialize(selected)); File.Move(temporary, copySettings, true); }
+                finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            });
+            CopyColumnsMenu.Items.Add(item);
+        }
+        CopyDataButton.IsEnabled = CopyColumnsMenu.Items.Cast<MenuItem>().Any(i => i.IsChecked);
         _changeMonitor = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = store.Path, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
         _changeMonitor.Open();
         RangePreset.ItemsSource = new[] { "Today", "Yesterday", "This week", "Last week", "This month", "Last month", "This quarter", "Last quarter", "This year", "Last year", "Custom range" };
@@ -228,6 +246,17 @@ public partial class MainWindow : Window
     }
     private void ExportPng(object sender, RoutedEventArgs e) => Try(() => { RefreshReport(); var dialog = new SaveFileDialog { Filter = "PNG chart|*.png", FileName = ExportFileName("png") }; if (dialog.ShowDialog(this) == true) { HoursChart.SavePng(_report!, dialog.FileName); StatusText.Text = $"Chart saved: {dialog.FileName}"; } });
     private void ExportExcel(object sender, RoutedEventArgs e) => Try(() => { RefreshReport(); var dialog = new SaveFileDialog { Filter = "Excel workbook|*.xlsx", FileName = ExportFileName("xlsx") }; if (dialog.ShowDialog(this) == true) { ExcelExport.Save(_report!, dialog.FileName); StatusText.Text = $"Workbook saved: {dialog.FileName}"; } });
+    private void ChooseCopyColumns(object sender, RoutedEventArgs e)
+    {
+        CopyColumnsMenu.PlacementTarget = CopyColumnsButton;
+        CopyColumnsMenu.IsOpen = true;
+    }
+    private void CopyReportData(object sender, RoutedEventArgs e) => Try(() => {
+        var rows = ReportGrid.Items.Cast<ReportRow>().ToArray();
+        var columns = CopyColumnsMenu.Items.Cast<MenuItem>().Where(i => i.IsChecked).Select(i => (string)i.Tag);
+        System.Windows.Clipboard.SetDataObject(ReportClipboard.Create(rows, columns), true);
+        StatusText.Text = $"Copied {rows.Length} detailed {(rows.Length == 1 ? "entry" : "entries")}. Paste into Word or Excel.";
+    });
     private void MarkInvoiced(object sender, RoutedEventArgs e) => Try(() => {
         RefreshReport();
         if (_report!.Rows.Count == 0) throw new ArgumentException("There are no entries in this report.");
