@@ -15,16 +15,14 @@ public partial class MainWindow : Window
 {
     private readonly Store _store;
     private readonly DispatcherTimer _clock;
-    private readonly System.Windows.Forms.NotifyIcon? _tray;
-    private readonly System.Drawing.Icon? _trayIcon;
-    private bool _ready, _exiting, _changingFilters, _settingRange;
+    private bool _ready, _changingFilters, _settingRange;
     private int _rangeMonths;
     private long _lastDataVersion;
     private readonly SqliteConnection _changeMonitor;
     private TimeEntry? _running;
     private Report? _report;
 
-    public MainWindow(Store store, bool tray = true)
+    public MainWindow(Store store)
     {
         _store = store;
         InitializeComponent();
@@ -48,23 +46,11 @@ public partial class MainWindow : Window
         _changeMonitor = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = store.Path, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
         _changeMonitor.Open();
         RangePreset.ItemsSource = new[] { "Today", "Yesterday", "This week", "Last week", "This month", "Last month", "This quarter", "Last quarter", "This year", "Last year", "Custom range" };
-        if (tray)
-        {
-            using var icon = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/TickRiver.ico")).Stream;
-            _trayIcon = new System.Drawing.Icon(icon, System.Windows.Forms.SystemInformation.SmallIconSize);
-            _tray = new System.Windows.Forms.NotifyIcon { Icon = _trayIcon, Text = "TickRiver", Visible = true };
-            var menu = new System.Windows.Forms.ContextMenuStrip();
-            menu.Items.Add("Open TickRiver", null, (_, _) => Dispatcher.Invoke(Restore));
-            menu.Items.Add("Start / Stop timer", null, (_, _) => Dispatcher.Invoke(() => { Restore(); TimerClick(this, new RoutedEventArgs()); }));
-            menu.Items.Add("Exit", null, (_, _) => Dispatcher.Invoke(RequestExit));
-            _tray.ContextMenuStrip = menu;
-            _tray.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) Dispatcher.Invoke(Restore); };
-        }
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) }; _clock.Tick += (_, _) => SynchronizeTimer(); _clock.Start();
         Chart.DayClicked += day => { if (_report == null) return; ReportGrid.ItemsSource = _report.Rows.Where(r => r.Day == day).OrderByDescending(r => r.Start).ToArray(); ReportTabs.SelectedIndex = 1; StatusText.Text = $"Showing {day:MMMM d, yyyy}. Apply the report again to show the full range."; };
         _ready = true; Refresh(); RangePreset.SelectedItem = "This month"; TrackerNav.IsChecked = true;
         Closing += OnClosing;
-        Closed += (_, _) => { _clock.Stop(); _tray?.Dispose(); _trayIcon?.Dispose(); _changeMonitor.Dispose(); };
+        Closed += (_, _) => { _clock.Stop(); _changeMonitor.Dispose(); };
     }
 
     internal void Restore() { Show(); if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate(); }
@@ -115,7 +101,6 @@ public partial class MainWindow : Window
     {
         var seconds = _running == null ? 0 : Math.Max(0, (TimeFormat.Now.UtcTicks - _running.Start.UtcTicks) / TimeSpan.TicksPerSecond);
         TimerLabel.Text = TimeFormat.Duration(seconds);
-        if (_tray != null) _tray.Text = _running == null ? "TickRiver — ready" : $"TickRiver — {TimerLabel.Text}";
     }
     internal void SynchronizeTimer()
     {
@@ -264,7 +249,7 @@ public partial class MainWindow : Window
         _store.MarkInvoiced(_report, true); Refresh(); StatusText.Text = "Entries marked invoiced. Edit an entry to mark it unbilled again.";
     });
     private void BackupClick(object sender, RoutedEventArgs e) => Try(() => { var dialog = new SaveFileDialog { Filter = "SQLite backup|*.sqlite", FileName = $"TickRiver-backup-{DateTime.Now:yyyy-MM-dd-HHmmss}.sqlite" }; if (dialog.ShowDialog(this) == true) { _store.Backup(dialog.FileName); StatusText.Text = $"Backup saved: {dialog.FileName}"; } });
-    private void ExitClick(object sender, RoutedEventArgs e) => RequestExit();
+    private void ExitClick(object sender, RoutedEventArgs e) => Close();
     private async void ConnectionsClick(object sender, RoutedEventArgs e) => await ConnectClients(true);
     internal async System.Threading.Tasks.Task ConnectClients(bool retry)
     {
@@ -278,18 +263,18 @@ public partial class MainWindow : Window
         }
         catch (Exception error) { StatusText.Text = "AI connection setup: " + error.Message; }
     }
-    private void RequestExit()
+    private void OnClosing(object? sender, CancelEventArgs e)
     {
-        var confirmedTimer = _running;
-        if (confirmedTimer != null)
+        try
         {
-            var choice = System.Windows.MessageBox.Show(this, "Stop the active timer before exiting?\n\nYes: save and stop. No: keep counting until you next open TickRiver. Cancel: stay here.", "Active timer", MessageBoxButton.YesNoCancel);
-            if (choice == MessageBoxResult.Cancel) return;
-            if (choice == MessageBoxResult.Yes) { try { _store.Stop(TimeFormat.Now, confirmedTimer.Id); } catch (Exception error) { System.Windows.MessageBox.Show(this, error.Message); return; } }
+            var confirmedTimer = _store.Entries(runningOnly: true).SingleOrDefault();
+            if (confirmedTimer == null) return;
+            var choice = System.Windows.MessageBox.Show(this, "Stop the active timer before exiting?\n\nYes: save and stop. No: keep counting while TickRiver is closed. Cancel: stay here.", "Active timer", MessageBoxButton.YesNoCancel);
+            e.Cancel = choice == MessageBoxResult.Cancel;
+            if (choice == MessageBoxResult.Yes) _store.Stop(TimeFormat.Now, confirmedTimer.Id);
         }
-        _exiting = true; Close();
+        catch (Exception error) { e.Cancel = true; System.Windows.MessageBox.Show(this, error.Message); }
     }
-    private void OnClosing(object? sender, CancelEventArgs e) { if (!_exiting && _tray != null) { e.Cancel = true; Hide(); } }
 
     private sealed class DayTotalConverter(Dictionary<string, long> totals) : IValueConverter
     {

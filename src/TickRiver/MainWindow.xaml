@@ -4,7 +4,7 @@
     <Border Background="White" BorderBrush="#DFE7EC" BorderThickness="0,0,1,0">
       <DockPanel>
         <StackPanel DockPanel.Dock="Top" Margin="26,30,20,24"><TextBlock Text="◷ TickRiver" FontSize="29" FontWeight="SemiBold" /><TextBlock Text="Your time, flowing freely." Foreground="#788C98" Margin="0,9,0,0" /></StackPanel>
-        <StackPanel DockPanel.Dock="Bottom" Margin="18,20"><TextBlock Text="LOCAL WORKSPACE" FontSize="11" Foreground="#788C98" Margin="7,0,0,10" /><Button Content="AI connections…" Click="ConnectionsClick" Margin="4,0,4,10" /><Button Content="Back up data…" Click="BackupClick" /><Button Content="Exit TickRiver" Click="ExitClick" Margin="4,10,4,0" /><TextBlock Text="Closing keeps the app in the tray." FontSize="11" Foreground="#788C98" TextWrapping="Wrap" Margin="7,12,0,0" /></StackPanel>
+        <StackPanel DockPanel.Dock="Bottom" Margin="18,20"><TextBlock Text="LOCAL WORKSPACE" FontSize="11" Foreground="#788C98" Margin="7,0,0,10" /><Button Content="AI connections…" Click="ConnectionsClick" Margin="4,0,4,10" /><Button Content="Back up data…" Click="BackupClick" /><Button Content="Exit TickRiver" Click="ExitClick" Margin="4,10,4,0" /></StackPanel>
         <StackPanel>
           <RadioButton x:Name="TrackerNav" GroupName="Navigation" Content="◷   Time Tracker" Style="{StaticResource Nav}" Tag="Tracker" Checked="Navigate" />
           <RadioButton x:Name="ReportsNav" GroupName="Navigation" Content="▥   Reports" Style="{StaticResource Nav}" Tag="Reports" Checked="Navigate" />

@@ -24,7 +24,7 @@ internal static class SmokeTest
             store.SaveEntry(0, day % 4 == 0 ? second : project, day % 4 == 0 ? "Design review" : "Maintenance and client feedback", start, start.AddSeconds(3600 + day * 197), day % 4 == 0 ? 150 : 125, true, false);
         }
         store.Start(project, "Checking timer recovery", TimeFormat.Now.AddSeconds(-125));
-        var window = new MainWindow(new Store(store.Path), false) { ShowActivated = false };
+        var window = new MainWindow(new Store(store.Path)) { ShowActivated = false };
         window.Show(); window.UpdateLayout();
         if (window.Icon == null) throw new Exception("Application icon missing.");
         window.WindowState = WindowState.Minimized;
@@ -167,7 +167,10 @@ internal static class SmokeTest
             "Kiro: could not connect — Client config must be a JSON object.",
             "Grok Build: not detected."]) { ShowActivated = false, Width = 560, Height = 480 };
         warnings.Show(); Capture(warnings, Path.Combine(directory, "ai-connections-warnings.png")); warnings.Close();
+        var closed = false;
+        window.Closed += (_, _) => closed = true;
         window.Close();
+        if (!closed) throw new Exception("Closing kept the main window running.");
         File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
     }
     private static void CheckReportClipboard(MainWindow window, string directory, Store store)
@@ -203,7 +206,7 @@ internal static class SmokeTest
         foreach (var item in items.Where(i => i.IsChecked)) { item.IsChecked = false; item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)); }
         if (window.CopyDataButton.IsEnabled) throw new Exception("Copy remains enabled with no columns.");
         foreach (var item in items.Where(i => (string)i.Tag is "Description" or "Duration")) { item.IsChecked = true; item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent)); }
-        var restored = new MainWindow(new Store(store.Path), false);
+        var restored = new MainWindow(new Store(store.Path));
         try
         {
             if (!restored.CopyColumnsMenu.Items.Cast<MenuItem>().Where(i => i.IsChecked).Select(i => (string)i.Tag).SequenceEqual(["Description", "Duration"]))
