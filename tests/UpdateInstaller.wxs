@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="TickRiver shutdown fixture" Language="1033" Version="1.0.0" Manufacturer="TickRiver Tests"
+           UpgradeCode="91EC91C3-136C-4A2F-B6C8-C713539550DB">
+    <Package InstallerVersion="500" InstallScope="perUser" Compressed="yes" Platform="x64" />
+    <Property Id="MSIFASTINSTALL" Value="3" />
+    <Property Id="INSTALLFOLDER" Value="$(var.TargetRoot)\installed" />
+    <MediaTemplate EmbedCab="yes" />
+    <Directory Id="TARGETDIR" Name="SourceDir"><Directory Id="INSTALLFOLDER" Name="Fixture" /></Directory>
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="Fixture" Guid="CE9E736F-C75B-4F5F-B956-C87B053AD106" Win64="yes">
+        <RegistryValue Root="HKCU" Key="Software\TickRiver\InstallerFixture" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+    <Feature Id="FixtureFeature" Level="1"><ComponentRef Id="Fixture" /></Feature>
+    <Binary Id="Helper" SourceFile="$(var.Helper)" />
+    <CustomAction Id="ShutdownFixture" BinaryKey="Helper" Execute="immediate" Return="check" Impersonate="yes"
+                  ExeCommand='--shutdown-for-update "$(var.TargetRoot)" "$(var.TargetRoot)" --msi --ui-level [UILevel]' />
+    <!-- A short loopback-only delay makes the startup gate observable after the shutdown action exits. -->
+    <SetProperty Id="WaitFixture" Value='"[System64Folder]ping.exe" -n 3 127.0.0.1' Before="WaitFixture" Sequence="execute" />
+    <CustomAction Id="WaitFixture" BinaryKey="WixCA" DllEntry="WixQuietExec" Execute="deferred" Return="check" Impersonate="yes" />
+    <CustomActionRef Id="WixFailWhenDeferred" />
+    <InstallExecuteSequence>
+      <Custom Action="ShutdownFixture" Before="InstallValidate">NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="WaitFixture" After="InstallFiles">NOT REMOVE</Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>

@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TickRiver.Tests", "tests\Ti
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TickRiver.Mcp", "src\TickRiver.Mcp\TickRiver.Mcp.csproj", "{41D3B222-7A3F-47F7-A5F3-EB38A0D8BF9A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TickRiver.Update", "src\TickRiver.Update\TickRiver.Update.csproj", "{86D21FA0-1485-4DA4-B5B9-88B590417584}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -25,6 +27,18 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Debug|x64.Build.0 = Debug|Any CPU
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Debug|x86.Build.0 = Debug|Any CPU
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Release|Any CPU.Build.0 = Release|Any CPU
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Release|x64.ActiveCfg = Release|Any CPU
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Release|x64.Build.0 = Release|Any CPU
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Release|x86.ActiveCfg = Release|Any CPU
+		{86D21FA0-1485-4DA4-B5B9-88B590417584}.Release|x86.Build.0 = Release|Any CPU
 		{F6D96D13-03C7-4C78-9849-AEEE4102A7B3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{F6D96D13-03C7-4C78-9849-AEEE4102A7B3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F6D96D13-03C7-4C78-9849-AEEE4102A7B3}.Debug|x64.ActiveCfg = Debug|Any CPU

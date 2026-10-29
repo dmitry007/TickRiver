@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization Culture="en-us" xmlns="http://schemas.microsoft.com/wix/2006/localization">
+  <String Id="MaintenanceWelcomeDlgDescription">Repair this installation or remove TickRiver from your computer. Your saved time data will be kept.</String>
+  <String Id="Error1722">A TickRiver setup action could not finish. Close TickRiver and disconnect its AI connections, then retry. Shutdown details are in your TickRiver logs folder. Action: [1].</String>
+</WixLocalization>

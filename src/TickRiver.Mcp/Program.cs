@@ -20,5 +20,13 @@ try
 catch (Exception error) { Console.Error.WriteLine($"TickRiver could not open its database at {path}: {error.Message}"); return 1; }
 builder.Services.AddMcpServer(options => options.ServerInfo = new Implementation { Name = "TickRiver", Version = typeof(TimeTools).Assembly.GetName().Version!.ToString(3) })
     .WithStdioServerTransport().WithTools<TimeTools>().WithTools<TimerTools>().WithTools<EntryTools>();
-await builder.Build().RunAsync();
+using var host = builder.Build();
+if (OperatingSystem.IsWindows())
+{
+    if (InstanceControl.UpdateInProgress) return InstanceControl.UpdateInProgressExitCode;
+    using var control = new InstanceControl(() => UpdateShutdown.Request(host.Services.GetRequiredService<IHostApplicationLifetime>()), 1);
+    if (InstanceControl.UpdateInProgress) return InstanceControl.UpdateInProgressExitCode;
+    await host.RunAsync();
+}
+else await host.RunAsync();
 return 0;

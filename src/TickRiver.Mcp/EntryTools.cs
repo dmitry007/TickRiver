@@ -23,6 +23,7 @@ public sealed class EntryTools(Store store)
     public string AddEntry(long projectId, string start, string end, string description = "", decimal? rate = null,
         bool? billable = null, bool invoiced = false)
     {
+        using var change = UpdateShutdown.BeginChange();
         if (rate is < 0 or > 100000000) throw new ArgumentException("The hourly rate must be between 0 and 100,000,000.");
         var project = _readStore.Projects().SingleOrDefault(p => p.Id == projectId)
             ?? throw new ArgumentException("Unknown project ID. Use list_projects.");
@@ -39,6 +40,7 @@ public sealed class EntryTools(Store store)
     public string EditEntry(long entryId, string expectedVersion, string? description = null, long? projectId = null,
         string? start = null, string? end = null, decimal? rate = null, bool? billable = null, bool? invoiced = null)
     {
+        using var change = UpdateShutdown.BeginChange();
         var entry = Find(entryId);
         if (entry.End == null) throw new ArgumentException("Stop the active timer before editing it.");
         if (!string.Equals(expectedVersion, Version(entry), StringComparison.OrdinalIgnoreCase))

@@ -10,6 +10,8 @@
     <Condition Message="TickRiver requires 64-bit Windows.">Installed OR VersionNT64</Condition>
     <!-- Detect locked files, but leave closing AI hosts and timer decisions to the user. -->
     <Property Id="MSIRESTARTMANAGERCONTROL" Value="DisableShutdown" />
+    <!-- No restore point; only file costing. This is a per-user application. -->
+    <Property Id="MSIFASTINSTALL" Value="3" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPCOMMENTS" Value="Local time tracking with reports and an MCP server. Uninstall preserves your data." />
     <Property Id="INSTALLFOLDER">
@@ -62,8 +64,18 @@
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
     <Property Id="WixShellExecTarget" Value="[#TickRiverExe]" />
     <CustomAction Id="LaunchTickRiver" BinaryKey="WixCA" DllEntry="WixShellExec" Impersonate="yes" />
+    <Binary Id="TickRiverUpdateHelper" SourceFile="$(var.UpdateHelper)" />
+    <SetProperty Id="TICKRIVERUPDATEROOT" Value="[TickRiverFolder]" Before="ShutdownTickRiverForUpdate" Sequence="execute">NOT TICKRIVERUPDATEROOT</SetProperty>
+    <CustomAction Id="ShutdownTickRiverForUpdate" BinaryKey="TickRiverUpdateHelper" Execute="immediate" Return="check" Impersonate="yes"
+                  ExeCommand='--shutdown-for-update "[TICKRIVERUPDATEROOT]\." "[INSTALLFOLDER]." --msi --ui-level [UILevel]' />
+    <InstallExecuteSequence>
+      <Custom Action="ShutdownTickRiverForUpdate" Before="InstallValidate">NOT UPGRADINGPRODUCTCODE</Custom>
+    </InstallExecuteSequence>
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.BrandingDir)\Banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.BrandingDir)\Dialog.bmp" />
     <!-- Standard WiX dialogs, with no license agreement until a project license is chosen. -->
     <UI Id="TickRiverUI">
+      <ProgressText Action="ShutdownTickRiverForUpdate">Closing TickRiver and its AI connections...</ProgressText>
       <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
       <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
       <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
@@ -79,11 +91,31 @@
       <DialogRef Id="UserExit" />
       <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
       <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="1">NOT Installed</Publish>
-      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2">Installed</Publish>
-      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
-      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
-      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
-      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg">1</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="TickRiverMaintenanceDlg" Order="2">Installed</Publish>
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="TickRiverMaintenanceDlg">1</Publish>
+      <Publish Dialog="TickRiverMaintenanceDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg" Order="2">1</Publish>
+      <Publish Dialog="TickRiverMaintenanceDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg" Order="2">1</Publish>
+      <Publish Dialog="TickRiverMaintenanceDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg">1</Publish>
+      <Dialog Id="TickRiverMaintenanceDlg" Width="370" Height="270" Title="TickRiver Setup">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Repair or remove TickRiver" />
+        <Control Id="Description" Type="Text" X="25" Y="24" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="Choose what you would like to do." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="RepairButton" Type="PushButton" X="35" Y="78" Width="90" Height="20" Default="yes" Text="&amp;Repair">
+          <Publish Property="WixUI_InstallMode" Value="Repair" Order="1">1</Publish>
+        </Control>
+        <Control Id="RepairText" Type="Text" X="145" Y="77" Width="195" Height="40" Text="Restore missing or damaged application files and shortcuts." />
+        <Control Id="RemoveButton" Type="PushButton" X="35" Y="145" Width="90" Height="20" Text="&amp;Remove">
+          <Publish Property="WixUI_InstallMode" Value="Remove" Order="1">1</Publish>
+        </Control>
+        <Control Id="RemoveText" Type="Text" X="145" Y="144" Width="195" Height="40" Text="Remove TickRiver from this computer. Your saved time data will be kept." />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="&amp;Back" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Disabled="yes" Text="&amp;Next" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+        </Control>
+      </Dialog>
       <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchTickRiver" Order="1">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed</Publish>
       <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999">1</Publish>
     </UI>

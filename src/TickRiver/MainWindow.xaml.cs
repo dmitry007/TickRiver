@@ -250,6 +250,19 @@ public partial class MainWindow : Window
     });
     private void BackupClick(object sender, RoutedEventArgs e) => Try(() => { var dialog = new SaveFileDialog { Filter = "SQLite backup|*.sqlite", FileName = $"TickRiver-backup-{DateTime.Now:yyyy-MM-dd-HHmmss}.sqlite" }; if (dialog.ShowDialog(this) == true) { _store.Backup(dialog.FileName); StatusText.Text = $"Backup saved: {dialog.FileName}"; } });
     private void ExitClick(object sender, RoutedEventArgs e) => Close();
+    private bool _closingForUpdate;
+    internal void CloseForUpdate()
+    {
+        if (!IsVisible) return;
+        var edit = OwnedWindows.OfType<EditDialog>().FirstOrDefault(dialog => dialog.IsVisible);
+        if (edit != null)
+        {
+            StatusText.Text = "Finish or cancel the open edit so TickRiver setup can continue.";
+            edit.Closed += (_, _) => Dispatcher.BeginInvoke(() => { if (InstanceControl.UpdateInProgress) CloseForUpdate(); });
+            return;
+        }
+        _closingForUpdate = true; Close();
+    }
     private async void ConnectionsClick(object sender, RoutedEventArgs e) => await ConnectClients(true);
     internal async System.Threading.Tasks.Task ConnectClients(bool retry)
     {
@@ -265,6 +278,7 @@ public partial class MainWindow : Window
     }
     private void OnClosing(object? sender, CancelEventArgs e)
     {
+        if (_closingForUpdate) return;
         try
         {
             var confirmedTimer = _store.Entries(runningOnly: true).SingleOrDefault();

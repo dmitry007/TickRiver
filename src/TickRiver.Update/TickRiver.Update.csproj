@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PublishAot>true</PublishAot>
+    <ApplicationIcon>../TickRiver/Assets/TickRiver.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <StripSymbols>false</StripSymbols>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="../TickRiver.Core/InstanceControl.cs" Link="InstanceControl.cs" /></ItemGroup>
+</Project>

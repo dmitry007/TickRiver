@@ -5,6 +5,7 @@ param(
     [string]$WixBin,
     [string]$PublishDirectory = 'artifacts\installer\payload',
     [string]$OutputDirectory = 'artifacts\installer',
+    [string]$HelperDirectory,
     [string]$ProductVersion,
     [switch]$RequireSignedPayload
 )
@@ -15,6 +16,13 @@ if (-not [IO.Path]::IsPathRooted($PublishDirectory)) { $PublishDirectory = Join-
 if (-not [IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory = Join-Path $repoRoot $OutputDirectory }
 $PublishDirectory = [IO.Path]::GetFullPath($PublishDirectory).TrimEnd('\')
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory).TrimEnd('\')
+if (-not $HelperDirectory) { $HelperDirectory = Join-Path $OutputDirectory 'helper' }
+if (-not [IO.Path]::IsPathRooted($HelperDirectory)) { $HelperDirectory = Join-Path $repoRoot $HelperDirectory }
+$HelperDirectory = [IO.Path]::GetFullPath($HelperDirectory)
+if ($HelperDirectory.TrimEnd('\').Equals($PublishDirectory, [StringComparison]::OrdinalIgnoreCase) -or
+    $HelperDirectory.StartsWith($PublishDirectory + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'The installer-only helper must be outside PublishDirectory.'
+}
 if ($OutputDirectory.Equals($PublishDirectory, [StringComparison]::OrdinalIgnoreCase) -or
     $OutputDirectory.StartsWith($PublishDirectory + '\', [StringComparison]::OrdinalIgnoreCase)) {
     throw 'OutputDirectory must be outside PublishDirectory.'
@@ -50,6 +58,8 @@ if ($Stage -ne 'Package') {
             Invoke-Tool $DotnetPath @('publish', $project, '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
                 "-p:Version=$ProductVersion", "-p:PathMap=$repoRoot=/_/TickRiver", '-o', $PublishDirectory)
         }
+        Invoke-Tool $DotnetPath @('publish', 'src\TickRiver.Update\TickRiver.Update.csproj', '-c', 'Release', '-r', 'win-x64',
+            '--self-contained', 'true', "-p:Version=$ProductVersion", "-p:PathMap=$repoRoot=/_/TickRiver", '-o', $HelperDirectory)
     } finally { Pop-Location }
     if ($Stage -eq 'Publish') { Write-Host "Published TickRiver $ProductVersion to $PublishDirectory"; return }
 }
@@ -83,6 +93,16 @@ foreach ($name in @('TickRiver', 'TickRiver.Mcp', 'TickRiver.Core')) {
     }
 }
 $files = @(Get-ChildItem -LiteralPath $PublishDirectory -Recurse -File | Sort-Object FullName)
+$updateHelper = Join-Path $HelperDirectory 'TickRiver.Update.exe'
+if (-not (Test-Path -LiteralPath $updateHelper -PathType Leaf)) { throw 'Publish the native installer helper before packaging.' }
+$helperVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($updateHelper)
+if ($helperVersion.FileMajorPart -ne $version.Major -or $helperVersion.FileMinorPart -ne $version.Minor -or $helperVersion.FileBuildPart -ne $version.Build) {
+    throw 'Installer helper version does not match the MSI version. Publish the matching helper before packaging.'
+}
+if ($RequireSignedPayload) {
+    $signature = Get-AuthenticodeSignature -LiteralPath $updateHelper
+    if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) { throw 'The installer helper needs a valid timestamped signature.' }
+}
 if ($files | Where-Object { $_.Name -match '(?i)\.(sqlite(?:3)?(?:-(?:wal|shm))?|db|pfx|p12|pem|key|cer|crt|log|bak)$|^\.env($|\.)' }) {
     throw 'Payload contains data, a certificate, a key, or a log. Publish to a clean build directory.'
 }
@@ -90,6 +110,8 @@ if ($files | Where-Object { $_.Name -match '(?i)\.(sqlite(?:3)?(?:-(?:wal|shm))?
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $intermediate = Join-Path $OutputDirectory 'obj'
 New-Item -ItemType Directory -Path $intermediate -Force | Out-Null
+$branding = Join-Path $intermediate 'branding'
+& (Join-Path $PSScriptRoot 'Generate-InstallerBranding.ps1') -OutputDirectory $branding
 $namespace = 'http://schemas.microsoft.com/wix/2006/wi'
 $document = New-Object Xml.XmlDocument
 $wix = $document.CreateElement('Wix', $namespace); $document.AppendChild($wix) | Out-Null
@@ -137,12 +159,13 @@ $generated = Join-Path $intermediate 'Files.wxs'
 $document.Save($generated)
 $extensions = @('-ext', (Join-Path $WixBin 'WixUIExtension.dll'), '-ext', (Join-Path $WixBin 'WixUtilExtension.dll'))
 Invoke-Tool (Join-Path $WixBin 'candle.exe') (@('-nologo', '-wx', '-arch', 'x64', "-dProductVersion=$ProductVersion",
-    "-dPublishDir=$PublishDirectory", "-dRepoRoot=$repoRoot\", '-out', "$intermediate\",
+    "-dPublishDir=$PublishDirectory", "-dRepoRoot=$repoRoot\", "-dUpdateHelper=$updateHelper", "-dBrandingDir=$branding", '-out', "$intermediate\",
     (Join-Path $repoRoot 'installer\Product.wxs'), $generated) + $extensions)
 $msi = Join-Path $OutputDirectory "TickRiver-$ProductVersion-win-x64.msi"
 # ICE91 warns that profile files cannot serve an ALLUSERS install. This package is exclusively per user.
 # ICE60 warns about the vendor's versioned, language-neutral e_sqlite3.dll, whose metadata is left intact.
 # ICE61 warns about the intentional same-version rebuild upgrade policy.
-Invoke-Tool (Join-Path $WixBin 'light.exe') (@('-nologo', '-wx', '-sice:ICE91', '-sice:ICE60', '-sice:ICE61', '-cultures:en-us', '-out', $msi,
+Invoke-Tool (Join-Path $WixBin 'light.exe') (@('-nologo', '-wx', '-sice:ICE91', '-sice:ICE60', '-sice:ICE61', '-cultures:en-us',
+    '-loc', (Join-Path $repoRoot 'installer\Strings.wxl'), '-out', $msi,
     (Join-Path $intermediate 'Product.wixobj'), (Join-Path $intermediate 'Files.wixobj')) + $extensions)
 Write-Host "Created $msi ($($files.Count) payload files)."

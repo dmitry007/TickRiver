@@ -33,6 +33,7 @@ Assert ($properties.ProductName -eq 'TickRiver') 'Wrong product name.'
 Assert ($properties.UpgradeCode -eq '{74C59C29-0743-4D2A-B150-0969EE3DC307}') 'Upgrade identity changed.'
 Assert (-not $properties.ContainsKey('ALLUSERS')) 'Installer must be per user.'
 Assert ($properties.MSIRESTARTMANAGERCONTROL -eq 'DisableShutdown') 'Installer must not shut down AI hosts or timers.'
+Assert ($properties.MSIFASTINSTALL -eq '3') 'Installer must skip restore points and non-file costing.'
 $summary = $database.SummaryInformation(0)
 Assert ($summary.Property(7) -eq 'x64;1033') 'Installer must target Windows x64.'
 Assert (($summary.Property(15) -band 8) -ne 0) 'Installer must not require elevation.'
@@ -55,6 +56,16 @@ foreach ($row in $shortcuts) {
 $events = @(Get-Rows 'SELECT `Dialog_`, `Control_`, `Event`, `Argument` FROM `ControlEvent`' 4)
 Assert ([bool]($events | Where-Object { $_[0] -eq 'WelcomeDlg' -and $_[1] -eq 'Next' -and $_[2] -eq 'NewDialog' -and $_[3] -eq 'VerifyReadyDlg' })) 'Welcome dialog cannot reach installation.'
 Assert (-not ($events | Where-Object { $_[3] -eq 'LicenseAgreementDlg' })) 'Installer must not assert an unchosen license.'
+$controls = @(Get-Rows 'SELECT `Dialog_`, `Control` FROM `Control`' 2)
+Assert ([bool]($controls | Where-Object { $_[0] -eq 'TickRiverMaintenanceDlg' -and $_[1] -eq 'RepairButton' })) 'Missing repair choice.'
+Assert ([bool]($controls | Where-Object { $_[0] -eq 'TickRiverMaintenanceDlg' -and $_[1] -eq 'RemoveButton' })) 'Missing remove choice.'
+Assert (-not ($controls | Where-Object { $_[1] -eq 'ChangeButton' })) 'Maintenance must not include a Change button.'
+$actions = @(Get-Rows 'SELECT `Action`, `Type`, `Source` FROM `CustomAction`' 3)
+Assert ([bool]($actions | Where-Object { $_[0] -eq 'ShutdownTickRiverForUpdate' -and $_[1] -eq '2' -and $_[2] -eq 'TickRiverUpdateHelper' })) 'Missing synchronous native EXE shutdown action.'
+$sequence = @{}
+Get-Rows 'SELECT `Action`, `Sequence` FROM `InstallExecuteSequence`' 2 | ForEach-Object { $sequence[$_[0]] = [int]$_[1] }
+Assert ($sequence.ShutdownTickRiverForUpdate -gt $sequence.CostFinalize -and $sequence.ShutdownTickRiverForUpdate -lt $sequence.InstallValidate) 'Shutdown must finish before checking locked files.'
+Assert (-not ($fileNames -contains 'TickRiver.Update.exe')) 'Installer-only helper must not be deployed with the application.'
 $removals = @(Get-Rows 'SELECT `FileName`, `DirProperty` FROM `RemoveFile`' 2)
 Assert (-not ($removals | Where-Object { $_[0] })) 'Uninstall must remove only explicit MSI files and empty installation folders.'
 $upgrades = @(Get-Rows 'SELECT `ActionProperty` FROM `Upgrade`' 1)
@@ -111,7 +122,7 @@ if ($PreviousMsi) {
     }
     function Invoke-Msi([string[]]$MsiArguments, [string]$LogName, [int]$ExpectedCode = 0) {
         $log = Join-Path $testRoot "$LogName.log"
-        $process = Start-Process msiexec.exe -WindowStyle Hidden -PassThru -Wait -ArgumentList ($MsiArguments + @('/qn', '/norestart', '/l*v', "`"$log`""))
+        $process = Start-Process msiexec.exe -WindowStyle Hidden -PassThru -Wait -ArgumentList ($MsiArguments + @('/qn', '/norestart', "TICKRIVERUPDATEROOT=`"$testRoot`"", '/l*v', "`"$log`""))
         Assert ($process.ExitCode -eq $ExpectedCode) "$LogName returned $($process.ExitCode); see $log."
     }
     $oldInstalled = $false; $newInstalled = $false

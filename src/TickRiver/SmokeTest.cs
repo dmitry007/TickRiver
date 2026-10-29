@@ -169,8 +169,40 @@ internal static class SmokeTest
         warnings.Show(); Capture(warnings, Path.Combine(directory, "ai-connections-warnings.png")); warnings.Close();
         var closed = false;
         window.Closed += (_, _) => closed = true;
-        window.Close();
+        var updateTimer = store.Start(project, "Installer shutdown fixture", TimeFormat.Now.AddSeconds(-5));
+        using (var control = new InstanceControl(() => window.Dispatcher.BeginInvoke(window.CloseForUpdate), 0))
+        {
+            var edit = new EditDialog(window, "Installer edit fixture", () => { }) { ShowActivated = false };
+            edit.Show();
+            var deadline = System.Diagnostics.Stopwatch.StartNew();
+            using (var cancelledGate = InstanceControl.CreateUpdateGate())
+            {
+                var cancelledRequest = System.Threading.Tasks.Task.Run(() => InstanceControl.RequestShutdown(System.Diagnostics.Process.GetCurrentProcess()));
+                while ((!cancelledRequest.IsCompleted || !window.StatusText.Text.StartsWith("Finish or cancel")) && deadline.Elapsed < TimeSpan.FromSeconds(5))
+                {
+                    window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                    System.Threading.Thread.Sleep(10);
+                }
+                if (!cancelledRequest.IsCompletedSuccessfully || !cancelledRequest.Result || !window.IsVisible || !edit.IsVisible
+                    || !window.StatusText.Text.StartsWith("Finish or cancel")) throw new Exception("Setup discarded an open edit or failed to acknowledge shutdown.");
+            }
+            edit.Close();
+            window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            if (!window.IsVisible) throw new Exception("Cancelling setup still closed TickRiver after finishing an edit.");
+            using var retryGate = InstanceControl.CreateUpdateGate();
+            var request = System.Threading.Tasks.Task.Run(() => InstanceControl.RequestShutdown(System.Diagnostics.Process.GetCurrentProcess()));
+            deadline.Restart();
+            while ((!closed || !request.IsCompleted) && deadline.Elapsed < TimeSpan.FromSeconds(5))
+            {
+                window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                System.Threading.Thread.Sleep(10);
+            }
+            if (!request.IsCompletedSuccessfully || !request.Result) throw new Exception("Installer shutdown pipe did not acknowledge the UI request.");
+        }
+        // Ordinary UI exit disposes an idle listener without pumping the dispatcher.
+        using (var idleControl = new InstanceControl(() => { }, 0)) { System.Threading.Thread.Sleep(50); }
         if (!closed) throw new Exception("Closing kept the main window running.");
+        if (new Store(store.Path).Entries().Single(entry => entry.Id == updateTimer).End != null) throw new Exception("Installer shutdown stopped the active timer.");
         File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
     }
     private static void CheckReportClipboard(MainWindow window, string directory, Store store)
