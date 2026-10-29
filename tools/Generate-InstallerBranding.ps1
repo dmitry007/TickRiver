@@ -7,8 +7,11 @@ $logo = [Drawing.Image]::FromFile((Join-Path $PSScriptRoot '..\src\TickRiver\Ass
 try {
     foreach ($kind in @('Dialog', 'Banner')) {
         $height = if ($kind -eq 'Dialog') { 312 } else { 58 }
-        $bitmap = New-Object Drawing.Bitmap 493, $height
+        # Keep the layout in logical pixels, with enough detail for high-DPI installer scaling.
+        $scale = 3
+        $bitmap = New-Object Drawing.Bitmap (493 * $scale), ($height * $scale)
         $graphics = [Drawing.Graphics]::FromImage($bitmap)
+        $graphics.ScaleTransform($scale, $scale)
         $graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
         $graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
         $graphics.TextRenderingHint = [Drawing.Text.TextRenderingHint]::AntiAliasGridFit
@@ -19,7 +22,7 @@ try {
             $graphics.FillRectangle($fill, $panel); $fill.Dispose()
             $graphics.DrawImage($logo, 45, 35, 74, 74)
             $title = New-Object Drawing.Font 'Segoe UI', 19, ([Drawing.FontStyle]::Bold), ([Drawing.GraphicsUnit]::Pixel)
-            $body = New-Object Drawing.Font 'Segoe UI', 12, ([Drawing.FontStyle]::Regular), ([Drawing.GraphicsUnit]::Pixel)
+            $body = New-Object Drawing.Font 'Segoe UI Semibold', 14, ([Drawing.FontStyle]::Regular), ([Drawing.GraphicsUnit]::Pixel)
             $format = New-Object Drawing.StringFormat
             $format.Alignment = [Drawing.StringAlignment]::Center
             $graphics.DrawString('TickRiver', $title, [Drawing.Brushes]::White, [Drawing.RectangleF]::new(4, 124, 156, 30), $format)
