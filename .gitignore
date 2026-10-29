@@ -5,3 +5,13 @@ work/
 artifacts/
 *.user
 *.sqlite*
+/build-signed.cmd
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer
+*.crt
+*.der
+*.snk
+*.wixpdb

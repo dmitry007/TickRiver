@@ -74,4 +74,24 @@ dotnet publish src/TickRiver/TickRiver.csproj -c Release -r win-x64 --self-conta
 dotnet publish src/TickRiver.Mcp/TickRiver.Mcp.csproj -c Release -r win-x64 --self-contained true -o artifacts/TickRiver
 ```
 
-No installer, signing, Store listing, remote repository URL or open-source license has been configured yet.
+## Windows installer
+
+Build an unsigned Windows x64 MSI with a stable .NET 10 SDK and WiX Toolset 3 (the same toolset used by the other desktop installers):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\Build-Installer.ps1
+```
+
+The script publishes both projects as Release, self-contained Windows x64 builds into a clean `artifacts\installer\payload` directory, including the runtime, dependencies and matching portable PDBs. It generates WiX file components from that directory and builds `artifacts\installer\TickRiver-<version>-win-x64.msi`. Version defaults to `Directory.Build.props`; `-DotnetPath` and `-WixBin` override tool discovery. `-PublishDirectory` and `-OutputDirectory` override the build locations. A publish directory that is cleared must be inside this repository's `artifacts` or `work` directory.
+
+The MSI installs for the current user under `%LOCALAPPDATA%\Programs\TickRiver\<version>`, creates desktop and Start menu shortcuts, and appears in Installed apps. Newer MSI versions upgrade an earlier MSI installation; rebuilding the same version also replaces its earlier MSI installation. Older versions are blocked. Increment the three-part shared version for each release. Repair and uninstall are supported. Uninstall removes only installer-owned files, shortcuts and registry values; the separate `%LOCALAPPDATA%\TickRiver` database, logs and AI-client settings are retained. Existing portable installation folders are also retained. Close TickRiver and reconnect or restart AI clients using its MCP server before an upgrade or uninstall; the installer does not terminate those applications. The application refreshes its managed MCP registration when first launched from the new location.
+
+For unattended installation, use `msiexec /i <msi-path> /qn /norestart`. Add `ADDLOCAL=ApplicationFeature` to omit shortcuts. The interactive installer offers to launch TickRiver when it finishes. No project license is asserted by the installer.
+
+Run `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test-Installer.ps1 -Msi artifacts\installer\TickRiver-<version>-win-x64.msi -Extract` to validate package metadata and compare every administratively extracted file with the published payload. This does not register an installed product or create shortcuts.
+
+In a test account with no TickRiver MSI installed, add `-PreviousMsi <older-msi-path>` to also exercise installation, missing-file repair, upgrade, downgrade rejection and uninstall. This mode installs into disposable `work` folders without shortcuts, checks that unowned files and user data survive, and removes its test products afterward. It refuses to run over an existing TickRiver MSI installation.
+
+The optional local release workflow is `build-signed.cmd` in the repository root. It is deliberately ignored by Git, as are certificate/key files and build outputs. It publishes first, signs both executables and the application DLLs, packages the signed payload, then signs and verifies the MSI. The public script's `-Stage Publish` and `-Stage Package -RequireSignedPayload` support that ordering without any certificate identity in tracked files. Keep private signing scripts outside commits, and distribute the MSI rather than the build directory, which also contains local WiX diagnostics.
+
+No Store listing or open-source license has been configured yet.

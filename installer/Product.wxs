@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="TickRiver" Language="1033" Version="$(var.ProductVersion)"
+           Manufacturer="TickRiver" UpgradeCode="74C59C29-0743-4D2A-B150-0969EE3DC307">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" Platform="x64"
+             Description="TickRiver Windows time tracker" />
+    <MajorUpgrade Schedule="afterInstallInitialize" AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of TickRiver is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="mszip" />
+    <Condition Message="TickRiver requires 64-bit Windows.">Installed OR VersionNT64</Condition>
+    <!-- Detect locked files, but leave closing AI hosts and timer decisions to the user. -->
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="DisableShutdown" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPCOMMENTS" Value="Local time tracking with reports and an MCP server. Uninstall preserves your data." />
+    <Property Id="INSTALLFOLDER">
+      <RegistrySearch Id="InstalledFolder" Root="HKCU" Key="Software\TickRiver\Installer\$(var.ProductVersion)"
+                      Name="InstallFolder" Type="raw" Win64="yes" />
+    </Property>
+    <Icon Id="TickRiverIcon" SourceFile="$(var.RepoRoot)src\TickRiver\Assets\TickRiver.ico" />
+    <Property Id="ARPPRODUCTICON" Value="TickRiverIcon" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="LocalProgramsFolder" Name="Programs">
+          <Directory Id="TickRiverFolder" Name="TickRiver">
+            <Directory Id="INSTALLFOLDER" Name="$(var.ProductVersion)" />
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+      <Directory Id="DesktopFolder" />
+    </Directory>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="ApplicationShortcuts" Guid="*" Win64="yes">
+        <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="TickRiver" Target="[INSTALLFOLDER]TickRiver.exe"
+                  WorkingDirectory="INSTALLFOLDER" Icon="TickRiverIcon" />
+        <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="TickRiver" Target="[INSTALLFOLDER]TickRiver.exe"
+                  WorkingDirectory="INSTALLFOLDER" Icon="TickRiverIcon" />
+        <RegistryValue Root="HKCU" Key="Software\TickRiver\Installer\$(var.ProductVersion)"
+                       Name="Shortcuts" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+      <Component Id="InstallFolders" Guid="*" Win64="yes">
+        <RemoveFolder Id="RemoveVersionFolder" Directory="INSTALLFOLDER" On="uninstall" />
+        <RemoveFolder Id="RemoveTickRiverFolder" Directory="TickRiverFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveLocalProgramsFolder" Directory="LocalProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\TickRiver\Installer\$(var.ProductVersion)"
+                       Name="Folders" Type="integer" Value="1" KeyPath="yes" />
+        <RegistryValue Root="HKCU" Key="Software\TickRiver\Installer\$(var.ProductVersion)"
+                       Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" />
+      </Component>
+    </DirectoryRef>
+    <Feature Id="ApplicationFeature" Title="TickRiver" Level="1" Absent="disallow">
+      <ComponentGroupRef Id="PublishedFiles" />
+      <ComponentRef Id="InstallFolders" />
+    </Feature>
+    <Feature Id="ShortcutsFeature" Title="Desktop and Start menu shortcuts" Level="1">
+      <ComponentRef Id="ApplicationShortcuts" />
+    </Feature>
+
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch TickRiver" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#TickRiverExe]" />
+    <CustomAction Id="LaunchTickRiver" BinaryKey="WixCA" DllEntry="WixShellExec" Impersonate="yes" />
+    <!-- Standard WiX dialogs, with no license agreement until a project license is chosen. -->
+    <UI Id="TickRiverUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <DialogRef Id="DiskCostDlg" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="1">NOT Installed</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2">Installed</Publish>
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg">1</Publish>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchTickRiver" Order="1">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed</Publish>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999">1</Publish>
+    </UI>
+    <UIRef Id="WixUI_Common" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+  </Product>
+</Wix>

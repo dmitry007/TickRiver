@@ -9,6 +9,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+import xml.etree.ElementTree as ET
+
+version = ET.parse(pathlib.Path(__file__).resolve().parents[1] / "Directory.Build.props").findtext("PropertyGroup/Version")
 
 folder = pathlib.Path(tempfile.mkdtemp(prefix="TickRiver-mcp-"))
 database = folder / "fixture.sqlite"
@@ -55,7 +58,7 @@ def tool(name, arguments):
 try:
     initialized = request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "TickRiver-test", "version": "1"}})
     assert "result" in initialized, initialized
-    assert initialized["result"]["serverInfo"] == {"name": "TickRiver", "version": "0.1.4"}
+    assert initialized["result"]["serverInfo"] == {"name": "TickRiver", "version": version}
     process.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n'); process.stdin.flush()
     tools = request("tools/list", {})["result"]["tools"]
     assert {t["name"] for t in tools} == {"get_context", "list_clients", "list_projects", "get_hours", "list_entries", "get_entry", "edit_entry", "add_entry", "start_timer", "stop_timer"}
