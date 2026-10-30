@@ -169,7 +169,7 @@ internal static class SmokeTest
         warnings.Show(); Capture(warnings, Path.Combine(directory, "ai-connections-warnings.png")); warnings.Close();
         var closed = false;
         window.Closed += (_, _) => closed = true;
-        var updateTimer = store.Start(project, "Installer shutdown fixture", TimeFormat.Now.AddSeconds(-5));
+        var updateTimer = store.Start(project, "Installer shutdown fixture", TimeFormat.Now);
         using (var control = new InstanceControl(() => window.Dispatcher.BeginInvoke(window.CloseForUpdate), 0))
         {
             var edit = new EditDialog(window, "Installer edit fixture", () => { }) { ShowActivated = false };

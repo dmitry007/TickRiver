@@ -60,6 +60,17 @@ $controls = @(Get-Rows 'SELECT `Dialog_`, `Control` FROM `Control`' 2)
 Assert ([bool]($controls | Where-Object { $_[0] -eq 'TickRiverMaintenanceDlg' -and $_[1] -eq 'RepairButton' })) 'Missing repair choice.'
 Assert ([bool]($controls | Where-Object { $_[0] -eq 'TickRiverMaintenanceDlg' -and $_[1] -eq 'RemoveButton' })) 'Missing remove choice.'
 Assert (-not ($controls | Where-Object { $_[1] -eq 'ChangeButton' })) 'Maintenance must not include a Change button.'
+$launchCheckbox = @(Get-Rows 'SELECT `X`, `Y`, `Width`, `Height`, `Property` FROM `Control` WHERE `Dialog_` = ''TickRiverExitDialog'' AND `Control` = ''OptionalCheckBox''' 5)
+Assert ($launchCheckbox.Count -eq 1) 'Missing launch checkbox on the completion dialog.'
+$launchCheckbox = $launchCheckbox[0]
+Assert ([int]$launchCheckbox[1] -ge 234 -and ([int]$launchCheckbox[0] + [int]$launchCheckbox[2]) -le 180 -and
+    ([int]$launchCheckbox[1] + [int]$launchCheckbox[3]) -le 270) 'Launch checkbox must fit in the footer before the navigation buttons.'
+Assert ($launchCheckbox[4] -eq 'WIXUI_EXITDIALOGOPTIONALCHECKBOX') 'Launch checkbox is not bound to the launch option.'
+Assert ([bool]($events | Where-Object { $_[0] -eq 'TickRiverExitDialog' -and $_[1] -eq 'Finish' -and $_[2] -eq 'DoAction' -and $_[3] -eq 'LaunchTickRiver' })) 'Finish no longer honors the launch option.'
+foreach ($uiSequence in @('InstallUISequence', 'AdminUISequence')) {
+    $successDialogs = @(Get-Rows ('SELECT `Action` FROM `' + $uiSequence + '` WHERE `Sequence` = -1') 1)
+    Assert ($successDialogs.Count -eq 1 -and $successDialogs[0][0] -eq 'TickRiverExitDialog') 'Successful setup must show the TickRiver completion dialog.'
+}
 $actions = @(Get-Rows 'SELECT `Action`, `Type`, `Source` FROM `CustomAction`' 3)
 Assert ([bool]($actions | Where-Object { $_[0] -eq 'ShutdownTickRiverForUpdate' -and $_[1] -eq '2' -and $_[2] -eq 'TickRiverUpdateHelper' })) 'Missing synchronous native EXE shutdown action.'
 $sequence = @{}
