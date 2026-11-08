@@ -16,6 +16,40 @@ var project = store.SaveProject(0, client, "Website", null, true, false);
 var other = store.SaveProject(0, client, "Design", 160, true, false);
 Check(store.Projects().Single(p => p.Id == project).EffectiveRate == 120, "Client inheritance");
 Check(store.Projects().Single(p => p.Id == other).EffectiveRate == 160, "Project override");
+var colors = new ProjectColors(store.Path); colors.Load();
+var defaultColor = colors.Get(project);
+Check(defaultColor != colors.Get(other), "Adjacent projects received the same default color");
+Check(colors.IsAutomatic(project), "A default project color was marked as manually selected");
+colors.Save(project, null);
+Check(!File.Exists(store.Path + ".project-colors.json"), "Loading default project colors wrote user settings");
+colors.Get(long.MaxValue); colors.Get(0);
+var restartedColors = new ProjectColors(store.Path); restartedColors.Load();
+Check(restartedColors.Get(other) == colors.Get(other) && restartedColors.Get(project) == defaultColor, "Default project colors depend on load or display order");
+var chosenColor = ProjectColors.Palette[4]; var otherColor = ProjectColors.Palette[7];
+colors.Save(project, chosenColor.Hex.ToLowerInvariant()); colors.Save(other, otherColor.Hex);
+Check(ProjectColors.Default(project) == defaultColor && colors.Get(project) == chosenColor, "A stored override changed the automatic color preview");
+restartedColors.Load();
+Check(restartedColors.Get(project) == chosenColor && restartedColors.Get(other) == otherColor && !restartedColors.IsAutomatic(project), "Project color choices were not preserved across reload");
+colors.Save(project, null); restartedColors.Load();
+Check(restartedColors.Get(project) == defaultColor && restartedColors.Get(other) == otherColor && restartedColors.IsAutomatic(project), "Resetting a color changed another project or lost its automatic color");
+var separateColors = new ProjectColors(Path.Combine(directory, "separate.sqlite")); separateColors.Load();
+Check(separateColors.Get(other) != otherColor, "Project color choices leaked across databases");
+Reject(() => colors.Save(project, "#FF0000"), "An unsupported project color was saved");
+Reject(() => colors.Save(0, chosenColor.Hex), "A color was saved without a project");
+var colorSettings = store.Path + ".project-colors.json";
+File.WriteAllText(colorSettings, "{\"1\":\"#71947d\",\"2\":\"not a color\",\"3\":null,\"-1\":\"#B77E6A\"}");
+restartedColors.Load();
+Check(restartedColors.Get(project) == defaultColor && restartedColors.Get(other) == ProjectColors.Palette[(int)((other - 1) % ProjectColors.Palette.Count)] && restartedColors.IsAutomatic(other), "Invalid saved project colors did not fall back to defaults");
+restartedColors.Save(project, chosenColor.Hex);
+File.WriteAllText(colorSettings, "{broken");
+try { restartedColors.Load(); throw new Exception("Corrupt color settings were silently accepted"); }
+catch (System.Text.Json.JsonException) { checks++; }
+Check(restartedColors.Get(project) == chosenColor, "A failed color load changed the current choices");
+File.Delete(colorSettings); Directory.CreateDirectory(colorSettings);
+try { restartedColors.Save(project, otherColor.Hex); throw new Exception("An unwritable color file reported success"); }
+catch (Exception error) when (error is IOException or UnauthorizedAccessException) { checks++; }
+Check(restartedColors.Get(project) == chosenColor && !Directory.GetFiles(directory, "*.tmp").Any(), "A failed color save changed the current choice or left a temporary file");
+Directory.Delete(colorSettings);
 var start = new DateTimeOffset(2026, 9, 1, 23, 30, 0, TimeSpan.Zero);
 store.Start(project, "Overnight", start);
 Check(new Store(store.Path).Entries().Single().End == null, "Timer survives repository restart");

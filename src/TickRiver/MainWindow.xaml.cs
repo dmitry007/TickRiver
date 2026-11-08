@@ -14,6 +14,7 @@ namespace TickRiver;
 public partial class MainWindow : Window
 {
     private readonly Store _store;
+    private readonly ProjectColors _projectColors;
     private readonly DispatcherTimer _clock;
     private bool _ready, _changingFilters, _settingRange;
     private int _rangeMonths;
@@ -25,7 +26,11 @@ public partial class MainWindow : Window
     public MainWindow(Store store)
     {
         _store = store;
+        _projectColors = new ProjectColors(store.Path);
         InitializeComponent();
+        ((ProjectColorBrushConverter)Resources["ProjectColorBrush"]).Colors = _projectColors;
+        try { _projectColors.Load(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { StatusText.Text = "Could not load project colors: " + error.Message; }
         var selectedColumns = ReportClipboard.Columns.Where(c => c.Key is not ("ProjectClient" or "Billing")).Select(c => c.Key).ToArray();
         var copySettings = store.Path + ".copy-columns.json";
         try { if (File.Exists(copySettings)) selectedColumns = JsonSerializer.Deserialize<string[]>(File.ReadAllText(copySettings)) ?? selectedColumns; }
@@ -69,6 +74,7 @@ public partial class MainWindow : Window
 
     internal void Refresh()
     {
+        ((ProjectColorBrushConverter)Resources["ProjectColorBrush"]).Refresh();
         _lastDataVersion = ReadDataVersion();
         var projects = _store.Projects(); var clients = _store.Clients(); var entries = _store.Entries();
         var selectedTimer = (TimerProject.SelectedItem as Project)?.Id;
@@ -144,10 +150,10 @@ public partial class MainWindow : Window
             if (!EditDialog.Client(this, _store)) return;
             Refresh();
         }
-        var id = EditDialog.Project(this, _store);
+        var id = EditDialog.Project(this, _store, _projectColors);
         if (id != null) { Refresh(); TimerProject.SelectedItem = ((IEnumerable<Project>)TimerProject.ItemsSource).FirstOrDefault(p => p.Id == id); StatusText.Text = "Project saved."; }
     });
-    private void EditProjectClick(object sender, RoutedEventArgs e) => Try(() => { if (ProjectsGrid.SelectedItem is not Project p) throw new ArgumentException("Select a project to edit."); if (EditDialog.Project(this, _store, p) != null) Refresh(); });
+    private void EditProjectClick(object sender, RoutedEventArgs e) => Try(() => { if (ProjectsGrid.SelectedItem is not Project p) throw new ArgumentException("Select a project to edit."); if (EditDialog.Project(this, _store, _projectColors, p) != null) Refresh(); });
     private void AddTimeClick(object sender, RoutedEventArgs e) => Try(() => { if (EditDialog.Entry(this, _store, selectedProject: (TimerProject.SelectedItem as Project)?.Id)) Refresh(); });
     private void EditEntryClick(object sender, RoutedEventArgs e) => Try(() => { if (EntriesGrid.SelectedItem is not TimeEntry entry) return; if (EditDialog.Entry(this, _store, entry)) Refresh(); });
     private void EditReportEntry(object sender, RoutedEventArgs e) => Try(() => { if (ReportGrid.SelectedItem is ReportRow row && EditDialog.Entry(this, _store, row.Entry)) Refresh(); });

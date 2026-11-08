@@ -54,6 +54,7 @@ internal static class SmokeTest
         if (crash == null || !File.ReadAllText(crash).Contains("Diagnostic fixture")) throw new Exception("Diagnostic log missing.");
         if (CrashLog.Write(new Exception("Expected log failure"), "Smoke test", store.Path) != null) throw new Exception("Unwritable diagnostic path should be tolerated.");
         if (window.TimerButton.Content.ToString() != "STOP" || window.TimerLabel.Text == "00:00:00") throw new Exception("Persisted timer was not recovered.");
+        CheckProjectColors(window, store, directory, project);
         window.TimerButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (store.Entries().Any(e => e.End == null)) throw new Exception("Stop button failed to save the timer.");
         var external = store.Start(project, "External timer", TimeFormat.Now);
@@ -203,7 +204,78 @@ internal static class SmokeTest
         using (var idleControl = new InstanceControl(() => { }, 0)) { System.Threading.Thread.Sleep(50); }
         if (!closed) throw new Exception("Closing kept the main window running.");
         if (new Store(store.Path).Entries().Single(entry => entry.Id == updateTimer).End != null) throw new Exception("Installer shutdown stopped the active timer.");
-        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
+        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: project color picker, persistence, reset, cancellation, matching tracker/report/project/timer markers without stopping the timer, window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
+    }
+    private static void CheckProjectColors(MainWindow window, Store store, string directory, long projectId)
+    {
+        var colors = ((ProjectColorBrushConverter)window.Resources["ProjectColorBrush"]).Colors!;
+        var project = store.Projects().Single(p => p.Id == projectId);
+        var timer = store.Entries(runningOnly: true).Single();
+        var chosen = ProjectColors.Palette[4];
+        void Edit(ProjectColor? selection, bool save, bool capture = false)
+        {
+            Exception? failure = null;
+            window.Dispatcher.BeginInvoke(() => {
+                var dialog = System.Windows.Application.Current.Windows.OfType<EditDialog>().Single();
+                try
+                {
+                    var root = (StackPanel)((ScrollViewer)dialog.Content).Content;
+                    var fields = root.Children.OfType<StackPanel>().First();
+                    var picker = fields.Children.OfType<ComboBox>().Single(c => System.Windows.Automation.AutomationProperties.GetName(c) == "Project color");
+                    if (picker.ItemTemplate == null || picker.Items.Count != ProjectColors.Palette.Count + 1) throw new Exception("Project color picker is missing named swatches.");
+                    if (selection != null) picker.SelectedItem = selection; else picker.SelectedIndex = 0;
+                    if (capture) Capture(dialog, Path.Combine(directory, "project-color.png"));
+                    if (save) root.Children.OfType<StackPanel>().Last().Children.OfType<Button>().Single(b => b.IsDefault).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    else dialog.DialogResult = false;
+                    if (dialog.IsVisible) throw new Exception("Project color dialog did not save.");
+                }
+                catch (Exception error) { failure = error; }
+                finally { if (dialog.IsVisible) dialog.DialogResult = false; }
+            }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            var saved = EditDialog.Project(window, store, colors, project);
+            if (failure != null) throw new Exception("Project color dialog probe failed.", failure);
+            if ((saved != null) != save) throw new Exception("Project color dialog returned an incorrect save result.");
+            window.Refresh();
+        }
+        Edit(chosen, true, capture: true);
+        var reloaded = new ProjectColors(store.Path); reloaded.Load();
+        if (reloaded.Get(projectId) != chosen || colors.Get(projectId) != chosen) throw new Exception("Project color choice did not persist.");
+        window.UpdateLayout();
+        IEnumerable<Border> Markers(DependencyObject parent)
+        {
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is Border { Width: 12, Height: 12 } marker) yield return marker;
+                foreach (var nested in Markers(child)) yield return nested;
+            }
+        }
+        if (!Markers(window.TimerProject).Any(b => (b.Background as SolidColorBrush)?.Color.ToString() == "#FF" + chosen.Hex[1..]))
+            throw new Exception("The displayed timer selector retained the old project color.");
+        var entry = store.Entries().First(e => e.ProjectId == projectId && e.End != null);
+        void CheckMarker(DataGrid grid, object item)
+        {
+            grid.ScrollIntoView(item); window.UpdateLayout();
+            var marker = ((DataGridTemplateColumn)grid.Columns[0]).CellTemplate.LoadContent() as Border;
+            if (marker == null) throw new Exception("Project marker is missing.");
+            marker.DataContext = item;
+            window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            if ((marker.Background as SolidColorBrush)?.Color.ToString() != "#FF" + chosen.Hex[1..]) throw new Exception($"Project marker in {grid.Name} does not match its selected color: {marker.Background}.");
+        }
+        CheckMarker(window.EntriesGrid, entry);
+        CheckMarker(window.ProjectsGrid, project);
+        var row = new ReportRow(entry, DateOnly.FromDateTime(entry.Start.LocalDateTime), entry.Start, entry.End!.Value);
+        CheckMarker(window.ReportGrid, row);
+        var timerChoice = (StackPanel)window.TimerProject.ItemTemplate.LoadContent(); timerChoice.DataContext = project;
+        window.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        if (((Border)timerChoice.Children[0]).Background is not SolidColorBrush timerBrush || timerBrush.Color.ToString() != "#FF" + chosen.Hex[1..]) throw new Exception("Timer project color does not match its entries.");
+        Edit(ProjectColors.Palette[3], false);
+        if (colors.Get(projectId) != chosen) throw new Exception("Cancelling changed the project color.");
+        Edit(null, true);
+        reloaded.Load();
+        if (!reloaded.IsAutomatic(projectId) || reloaded.Get(projectId) != ProjectColors.Default(projectId)) throw new Exception("Automatic did not restore the project color.");
+        Edit(chosen, true);
+        if (store.Entries(runningOnly: true).Single() != timer) throw new Exception("Changing project colors changed the active timer.");
     }
     private static void CheckReportClipboard(MainWindow window, string directory, Store store)
     {

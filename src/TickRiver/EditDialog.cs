@@ -15,7 +15,7 @@ internal sealed class EditDialog : Window
         Owner = owner; Title = title; Width = 530; SizeToContent = SizeToContent.Height; MaxHeight = 850;
         WindowStartupLocation = WindowStartupLocation.CenterOwner; ResizeMode = ResizeMode.NoResize;
         Background = System.Windows.Media.Brushes.White;
-        var root = new StackPanel { Margin = new Thickness(26) };
+        var root = new StackPanel { Margin = new Thickness(26), Background = System.Windows.Media.Brushes.White };
         Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         root.Children.Add(new TextBlock { Text = title, FontSize = 23, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 18) });
         _fields = new StackPanel(); root.Children.Add(_fields);
@@ -47,22 +47,27 @@ internal sealed class EditDialog : Window
         dialog.Note("Rate and currency changes apply to future entries. Existing entries retain their recorded rate and currency. Archiving retains all history.");
         return dialog.ShowDialog() == true;
     }
-    public static long? Project(Window owner, Store store, Project? project = null)
+    public static long? Project(Window owner, Store store, ProjectColors colors, Project? project = null)
     {
         long? saved = null;
         var clients = store.Clients().Where(c => !c.Archived || c.Id == project?.ClientId).ToList();
         var client = new ComboBox { ItemsSource = clients, DisplayMemberPath = "Name", SelectedItem = clients.FirstOrDefault(c => c.Id == project?.ClientId) ?? clients.FirstOrDefault(), IsEnabled = project == null };
         TextBox name = new() { Text = project?.Name ?? "" }, rate = new() { Text = project?.RateOverride?.ToString(CultureInfo.CurrentCulture) ?? "" };
+        var automatic = new ProjectColor("Automatic", project == null ? "#9AA6AD" : ProjectColors.Default(project.Id).Hex);
+        var color = new ComboBox { ItemsSource = new[] { automatic }.Concat(ProjectColors.Palette), ItemTemplate = (DataTemplate)owner.FindResource("ColorChoice"),
+            SelectedItem = project == null || colors.IsAutomatic(project.Id) ? automatic : colors.Get(project.Id) };
         CheckBox inherit = new() { Content = "Use client rate", IsChecked = project?.RateOverride == null }, billable = new() { Content = "Billable by default", IsChecked = project?.Billable ?? true }, archived = new() { Content = "Archive project", IsChecked = project?.Archived ?? false };
         var dialog = new EditDialog(owner, project == null ? "New project" : "Edit project", () => {
             if (client.SelectedItem is not Client selected) throw new ArgumentException("Create or select a client first.");
-            saved = store.SaveProject(project?.Id ?? 0, selected.Id, name.Text, inherit.IsChecked == true ? null : Rate(rate.Text), billable.IsChecked == true, archived.IsChecked == true);
+            saved = store.SaveProject(saved ?? project?.Id ?? 0, selected.Id, name.Text, inherit.IsChecked == true ? null : Rate(rate.Text), billable.IsChecked == true, archived.IsChecked == true);
+            client.IsEnabled = false;
+            colors.Save(saved.Value, color.SelectedItem is ProjectColor choice && choice != automatic ? choice.Hex : null);
         });
         void RefreshRate() { rate.IsEnabled = inherit.IsChecked != true; inherit.Content = client.SelectedItem is Client selected ? $"Use client rate — {selected.Currency} {selected.Rate:0.00}/hour" : "Use client rate"; }
         inherit.Checked += (_, _) => RefreshRate(); inherit.Unchecked += (_, _) => RefreshRate(); client.SelectionChanged += (_, _) => RefreshRate(); RefreshRate();
-        dialog.Field("Client / Company", client); dialog.Field("Project name", name); dialog.Field("Hourly rate", inherit); dialog.Field("Project override", rate); dialog.Field("Billing", billable); dialog.Field("Status", archived);
+        dialog.Field("Client / Company", client); dialog.Field("Project name", name); dialog.Field("Project color", color); dialog.Field("Hourly rate", inherit); dialog.Field("Project override", rate); dialog.Field("Billing", billable); dialog.Field("Status", archived);
         dialog.Note("New entries inherit the current client rate unless overridden. Rate changes leave past work unchanged.");
-        dialog.ShowDialog(); return saved;
+        return dialog.ShowDialog() == true ? saved : null;
     }
     public static bool Entry(Window owner, Store store, TimeEntry? entry = null, long? selectedProject = null)
     {
