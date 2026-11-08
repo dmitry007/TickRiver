@@ -28,7 +28,7 @@
         <Border Background="White" BorderBrush="#DDE6EB" BorderThickness="1" CornerRadius="5" Padding="22">
           <StackPanel><TextBlock Text="WHAT ARE YOU WORKING ON?" Foreground="#788C98" FontSize="11" Margin="0,0,0,10" /><TextBox x:Name="DescriptionBox" FontSize="17" ToolTip="Optional description" AutomationProperties.Name="Work description" />
             <Grid Margin="0,16,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <ComboBox x:Name="TimerProject" ItemTemplate="{StaticResource ProjectChoice}" AutomationProperties.Name="Timer project" MinWidth="260" />
+              <ComboBox x:Name="TimerProject" ItemTemplate="{StaticResource ProjectChoice}" TextSearch.TextPath="DisplayName" AutomationProperties.Name="Timer project" MinWidth="260" />
               <Button Grid.Column="1" Content="+ Project" Click="NewProjectClick" Margin="10,0" />
               <TextBlock Grid.Column="2" x:Name="TimerLabel" Text="00:00:00" FontSize="26" FontWeight="SemiBold" Margin="16,0" VerticalAlignment="Center" />
               <Button Grid.Column="3" x:Name="TimerButton" Content="START" Style="{StaticResource Primary}" Click="TimerClick" MinWidth="100" />

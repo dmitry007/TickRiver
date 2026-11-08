@@ -212,7 +212,7 @@ internal static class SmokeTest
         var project = store.Projects().Single(p => p.Id == projectId);
         var timer = store.Entries(runningOnly: true).Single();
         var chosen = ProjectColors.Palette[4];
-        void Edit(ProjectColor? selection, bool save, bool capture = false)
+        void Edit(ProjectColor? selection, bool save, bool capture = false, bool failColorSave = false)
         {
             Exception? failure = null;
             window.Dispatcher.BeginInvoke(() => {
@@ -225,7 +225,15 @@ internal static class SmokeTest
                     if (picker.ItemTemplate == null || picker.Items.Count != ProjectColors.Palette.Count + 1) throw new Exception("Project color picker is missing named swatches.");
                     if (selection != null) picker.SelectedItem = selection; else picker.SelectedIndex = 0;
                     if (capture) Capture(dialog, Path.Combine(directory, "project-color.png"));
-                    if (save) root.Children.OfType<StackPanel>().Last().Children.OfType<Button>().Single(b => b.IsDefault).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    if (failColorSave)
+                    {
+                        fields.Children.OfType<TextBox>().Single(t => System.Windows.Automation.AutomationProperties.GetName(t) == "Project name").Text = project.Name + " revised";
+                        root.Children.OfType<StackPanel>().Last().Children.OfType<Button>().Single(b => b.IsDefault).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        if (!dialog.IsVisible || !root.Children.OfType<TextBlock>().Any(t => t.Text.StartsWith("Project details were saved, but the color could not be saved.")))
+                            throw new Exception("A color save failure did not explain the committed project details.");
+                        dialog.DialogResult = false;
+                    }
+                    else if (save) root.Children.OfType<StackPanel>().Last().Children.OfType<Button>().Single(b => b.IsDefault).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     else dialog.DialogResult = false;
                     if (dialog.IsVisible) throw new Exception("Project color dialog did not save.");
                 }
@@ -234,7 +242,7 @@ internal static class SmokeTest
             }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             var saved = EditDialog.Project(window, store, colors, project);
             if (failure != null) throw new Exception("Project color dialog probe failed.", failure);
-            if ((saved != null) != save) throw new Exception("Project color dialog returned an incorrect save result.");
+            if ((saved != null) != (save || failColorSave)) throw new Exception("Project color dialog returned an incorrect save result.");
             window.Refresh();
         }
         Edit(chosen, true, capture: true);
@@ -275,6 +283,18 @@ internal static class SmokeTest
         reloaded.Load();
         if (!reloaded.IsAutomatic(projectId) || reloaded.Get(projectId) != ProjectColors.Default(projectId)) throw new Exception("Automatic did not restore the project color.");
         Edit(chosen, true);
+        var settings = store.Path + ".project-colors.json"; var originalSettings = File.ReadAllText(settings);
+        File.Delete(settings); Directory.CreateDirectory(settings);
+        try
+        {
+            Edit(ProjectColors.Palette[3], false, failColorSave: true);
+            if (store.Projects().Single(p => p.Id == projectId).Name != project.Name + " revised") throw new Exception("Committed project details were not reported after a color save failure.");
+        }
+        finally
+        {
+            Directory.Delete(settings); File.WriteAllText(settings, originalSettings);
+            store.SaveProject(project.Id, project.ClientId, project.Name, project.RateOverride, project.Billable, project.Archived); window.Refresh();
+        }
         if (store.Entries(runningOnly: true).Single() != timer) throw new Exception("Changing project colors changed the active timer.");
     }
     private static void CheckReportClipboard(MainWindow window, string directory, Store store)

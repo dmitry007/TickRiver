@@ -56,18 +56,23 @@ internal sealed class EditDialog : Window
         var automatic = new ProjectColor("Automatic", project == null ? "#9AA6AD" : ProjectColors.Default(project.Id).Hex);
         var color = new ComboBox { ItemsSource = new[] { automatic }.Concat(ProjectColors.Palette), ItemTemplate = (DataTemplate)owner.FindResource("ColorChoice"),
             SelectedItem = project == null || colors.IsAutomatic(project.Id) ? automatic : colors.Get(project.Id) };
+        TextSearch.SetTextPath(color, "Name");
         CheckBox inherit = new() { Content = "Use client rate", IsChecked = project?.RateOverride == null }, billable = new() { Content = "Billable by default", IsChecked = project?.Billable ?? true }, archived = new() { Content = "Archive project", IsChecked = project?.Archived ?? false };
         var dialog = new EditDialog(owner, project == null ? "New project" : "Edit project", () => {
             if (client.SelectedItem is not Client selected) throw new ArgumentException("Create or select a client first.");
             saved = store.SaveProject(saved ?? project?.Id ?? 0, selected.Id, name.Text, inherit.IsChecked == true ? null : Rate(rate.Text), billable.IsChecked == true, archived.IsChecked == true);
             client.IsEnabled = false;
-            colors.Save(saved.Value, color.SelectedItem is ProjectColor choice && choice != automatic ? choice.Hex : null);
+            try { colors.Save(saved.Value, color.SelectedItem is ProjectColor choice && choice != automatic ? choice.Hex : null); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                throw new IOException("Project details were saved, but the color could not be saved. Retry Save, or choose Cancel to close and keep the saved details. " + error.Message, error);
+            }
         });
         void RefreshRate() { rate.IsEnabled = inherit.IsChecked != true; inherit.Content = client.SelectedItem is Client selected ? $"Use client rate — {selected.Currency} {selected.Rate:0.00}/hour" : "Use client rate"; }
         inherit.Checked += (_, _) => RefreshRate(); inherit.Unchecked += (_, _) => RefreshRate(); client.SelectionChanged += (_, _) => RefreshRate(); RefreshRate();
         dialog.Field("Client / Company", client); dialog.Field("Project name", name); dialog.Field("Project color", color); dialog.Field("Hourly rate", inherit); dialog.Field("Project override", rate); dialog.Field("Billing", billable); dialog.Field("Status", archived);
         dialog.Note("New entries inherit the current client rate unless overridden. Rate changes leave past work unchanged.");
-        return dialog.ShowDialog() == true ? saved : null;
+        dialog.ShowDialog(); return saved;
     }
     public static bool Entry(Window owner, Store store, TimeEntry? entry = null, long? selectedProject = null)
     {
