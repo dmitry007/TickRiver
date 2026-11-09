@@ -271,9 +271,11 @@ internal static class SmokeTest
         var maximumPng = PngSize("chart-combined-maximum-range.png");
         if (maximumPng.Width != chart.Report.Days.Count * 3 + 132 || maximumPng.Height != combinedPng.Height)
             throw new Exception("The maximum-range PNG clipped daily slots or added monthly panels.");
-        if (window.CombineMonths.IsChecked == true || window.Chart.CombineMonths) throw new Exception("Monthly chart layout is no longer the default.");
+        if (window.MonthlyCharts.IsChecked != true || window.CombineMonths.IsChecked == true || window.Chart.CombineMonths)
+            throw new Exception("Monthly chart layout is no longer the default selection.");
         window.CombineMonths.IsChecked = true;
-        if (!window.Chart.CombineMonths) throw new Exception("The chart layout checkbox did not update the chart immediately.");
+        if (window.CombineMonths.IsChecked != true || window.MonthlyCharts.IsChecked == true || !window.Chart.CombineMonths)
+            throw new Exception("Selecting Entire range did not update the chart immediately or deselect Monthly charts.");
         var originalNavigation = new[] { window.TrackerNav, window.ReportsNav, window.ClientsNav, window.ProjectsNav }.Single(n => n.IsChecked == true);
         var originalTab = window.ReportTabs.SelectedIndex;
         window.ReportsNav.IsChecked = true; window.ReportTabs.SelectedIndex = 0; window.UpdateLayout();
@@ -282,15 +284,18 @@ internal static class SmokeTest
         var restored = new MainWindow(new Store(store.Path));
         try
         {
-            if (restored.CombineMonths.IsChecked != true || !restored.Chart.CombineMonths) throw new Exception("The combined chart layout was not restored.");
+            if (restored.CombineMonths.IsChecked != true || restored.MonthlyCharts.IsChecked == true || !restored.Chart.CombineMonths)
+                throw new Exception("The saved combined chart layout did not restore the Entire range selection.");
         }
         finally { restored.Close(); }
-        window.CombineMonths.IsChecked = false;
-        if (window.Chart.CombineMonths) throw new Exception("The chart could not return to its monthly layout.");
+        window.MonthlyCharts.IsChecked = true;
+        if (window.MonthlyCharts.IsChecked != true || window.CombineMonths.IsChecked == true || window.Chart.CombineMonths)
+            throw new Exception("Selecting Monthly charts did not return to the monthly layout or deselect Entire range.");
         restored = new MainWindow(new Store(store.Path));
         try
         {
-            if (restored.CombineMonths.IsChecked == true || restored.Chart.CombineMonths) throw new Exception("The monthly chart layout was not restored.");
+            if (restored.MonthlyCharts.IsChecked != true || restored.CombineMonths.IsChecked == true || restored.Chart.CombineMonths)
+                throw new Exception("The saved monthly chart layout did not restore the Monthly charts selection.");
         }
         finally { restored.Close(); }
     }

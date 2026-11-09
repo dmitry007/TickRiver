@@ -4,6 +4,17 @@
     <Style x:Key="ProjectMarker" TargetType="Border"><Setter Property="Width" Value="12" /><Setter Property="Height" Value="12" /><Setter Property="CornerRadius" Value="3" /><Setter Property="VerticalAlignment" Value="Center" /></Style>
     <DataTemplate x:Key="ProjectChoice"><StackPanel Orientation="Horizontal"><Border Style="{StaticResource ProjectMarker}" Background="{Binding Id, Converter={StaticResource ProjectColorBrush}}" Margin="0,0,9,0" /><TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" /></StackPanel></DataTemplate>
     <DataTemplate x:Key="ColorChoice"><StackPanel Orientation="Horizontal"><Border Style="{StaticResource ProjectMarker}" Background="{Binding Hex}" Margin="0,0,9,0" /><TextBlock Text="{Binding Name}" VerticalAlignment="Center" /></StackPanel></DataTemplate>
+    <Style x:Key="ChartLayoutChoice" TargetType="RadioButton">
+      <Setter Property="Padding" Value="12,6" /><Setter Property="Cursor" Value="Hand" /><Setter Property="Foreground" Value="#526978" />
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+        <Border x:Name="Frame" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="3" Padding="{TemplateBinding Padding}"><ContentPresenter VerticalAlignment="Center" /></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsChecked" Value="True"><Setter TargetName="Frame" Property="Background" Value="#007C78" /><Setter Property="Foreground" Value="White" /><Setter Property="FontWeight" Value="SemiBold" /></Trigger>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Frame" Property="Opacity" Value="0.8" /></Trigger>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="#243846" /></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
   </Window.Resources>
   <Grid Background="#F3F6F8">
     <Grid.ColumnDefinitions><ColumnDefinition Width="220" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -52,7 +63,19 @@
           </StackPanel></Border>
           <Button Content="Mark invoiced" Click="MarkInvoiced" /></WrapPanel></DockPanel>
         <TabControl x:Name="ReportTabs" Grid.Row="3" Background="White" BorderBrush="#DDE6EB" Padding="0">
-          <TabItem Header="   Summary   "><Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions><DockPanel Margin="22,20,22,12"><CheckBox x:Name="CombineMonths" DockPanel.Dock="Right" Content="One chart for entire range" VerticalAlignment="Center" Margin="18,0,0,0" Checked="ChartLayoutChanged" Unchecked="ChartLayoutChanged" ToolTip="Combine all selected dates into one daily timeline. Longer ranges scroll horizontally." /><TextBlock x:Name="ChartTitle" FontSize="17" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /></DockPanel><ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"><StackPanel><local:HoursChart x:Name="Chart" Margin="12,0" /><TextBlock Text="Click a day’s bar to see its time entries. Zero-work days remain visible." Foreground="#788C98" Margin="22,8,22,20" /></StackPanel></ScrollViewer></Grid></TabItem>
+          <TabItem Header="   Summary   "><Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+            <DockPanel Margin="22,20,22,12">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="18,0,0,0">
+                <TextBlock Text="Chart layout:" Foreground="#788C98" VerticalAlignment="Center" Margin="0,0,10,0" />
+                <Border Background="White" BorderBrush="#CDD9E0" BorderThickness="1" CornerRadius="4" Padding="2"><StackPanel Orientation="Horizontal">
+                  <RadioButton x:Name="MonthlyCharts" Content="Monthly charts" Style="{StaticResource ChartLayoutChoice}" IsChecked="True" Checked="ChartLayoutChanged" ToolTip="A separate daily chart for each month." />
+                  <RadioButton x:Name="CombineMonths" Content="Entire range" Style="{StaticResource ChartLayoutChoice}" Checked="ChartLayoutChanged" ToolTip="One daily timeline for all selected dates. Longer ranges scroll horizontally." />
+                </StackPanel></Border>
+              </StackPanel>
+              <TextBlock x:Name="ChartTitle" FontSize="17" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+            </DockPanel>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"><StackPanel><local:HoursChart x:Name="Chart" Margin="12,0" /><TextBlock Text="Click a day’s bar to see its time entries. Zero-work days remain visible." Foreground="#788C98" Margin="22,8,22,20" /></StackPanel></ScrollViewer>
+          </Grid></TabItem>
           <TabItem Header="   Detailed   "><DataGrid x:Name="ReportGrid" MouseDoubleClick="EditReportEntry"><DataGrid.Columns><DataGridTemplateColumn Width="34" CanUserSort="False" CanUserResize="False"><DataGridTemplateColumn.CellTemplate><DataTemplate><Border Style="{StaticResource ProjectMarker}" Background="{Binding Entry.ProjectId, Converter={StaticResource ProjectColorBrush}}" ToolTip="{Binding ProjectLabel}" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTextColumn Header="Date" Binding="{Binding DateLabel}" Width="110" /><DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="*" /><DataGridTextColumn Header="Project · Client" Binding="{Binding ProjectLabel}" Width="190" /><DataGridTextColumn Header="Duration" Binding="{Binding Duration}" Width="100" /><DataGridTextColumn Header="Decimal h" Binding="{Binding DecimalHours, StringFormat=N6}" Width="100" /><DataGridTextColumn Header="Amount" Binding="{Binding AmountLabel}" Width="100" /><DataGridTextColumn Header="Billing" Binding="{Binding BillingLabel}" Width="90" /></DataGrid.Columns></DataGrid></TabItem>
         </TabControl>
       </Grid>
