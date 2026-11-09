@@ -152,6 +152,7 @@ internal static class SmokeTest
             window.NextRangeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             if (window.FromDate.SelectedDate != initialFrom || window.ToDate.SelectedDate != initialTo) throw new Exception("Calendar range did not return to original.");
         }
+        CheckChartLayouts(window, store, directory);
         var connections = new ConnectionsDialog(window, [
             "Codex: Bundled executable and database verified.",
             "Claude Code: Bundled executable and database verified.",
@@ -204,7 +205,94 @@ internal static class SmokeTest
         using (var idleControl = new InstanceControl(() => { }, 0)) { System.Threading.Thread.Sleep(50); }
         if (!closed) throw new Exception("Closing kept the main window running.");
         if (new Store(store.Path).Entries().Single(entry => entry.Id == updateTimer).End != null) throw new Exception("Installer shutdown stopped the active timer.");
-        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: project color picker, persistence, reset, cancellation, matching tracker/report/project/timer markers without stopping the timer, window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
+        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: project color picker, persistence, reset, cancellation, matching tracker/report/project/timer markers without stopping the timer, window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, monthly and combined charts across a year boundary, zero-day drilldown, maximum-range chart width, saved chart layout, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
+    }
+    private static void CheckChartLayouts(MainWindow window, Store store, string directory)
+    {
+        var from = new DateOnly(2025, 10, 15); var to = new DateOnly(2026, 3, 14);
+        TimeEntry Fixture(DateOnly day, int hours)
+        {
+            var start = new DateTimeOffset(day.ToDateTime(new TimeOnly(9, 0)), TimeSpan.Zero);
+            return new TimeEntry(day.DayNumber, 1, 1, "Chart fixture", "Northwind Studio", "Year boundary", start, start.AddHours(hours), 125, "USD", true, false);
+        }
+        var report = ReportBuilder.Build([Fixture(from, 2), Fixture(new DateOnly(2025, 12, 31), 3), Fixture(to, 1)], from, to, "Six-month chart layout", zone: TimeZoneInfo.Utc);
+        var chart = new HoursChart { Report = report };
+        void Render(double width = 900)
+        {
+            width = Math.Max(width, chart.MinWidth);
+            chart.Measure(new Size(width, double.PositiveInfinity));
+            chart.Arrange(new Rect(0, 0, width, chart.DesiredSize.Height)); chart.UpdateLayout();
+            var bitmap = new RenderTargetBitmap((int)Math.Ceiling(chart.ActualWidth), (int)Math.Ceiling(chart.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(chart);
+        }
+        Point DayPosition(DateOnly day)
+        {
+            var days = chart.Report!.Days;
+            var panel = 0;
+            if (!chart.CombineMonths)
+            {
+                var groups = days.GroupBy(d => (d.Day.Year, d.Day.Month)).ToArray();
+                panel = Array.FindIndex(groups, g => g.Key == (day.Year, day.Month)); days = groups[panel].ToArray();
+            }
+            var index = days.ToList().FindIndex(d => d.Day == day);
+            return new Point(56 + (index + .5) * (chart.ActualWidth - 80) / days.Count, panel * 245 + 48 + 72);
+        }
+        var zeroDay = new DateOnly(2026, 1, 1);
+        foreach (var combined in new[] { false, true })
+        {
+            chart.CombineMonths = combined; Render();
+            if (chart.ActualHeight != (combined ? 245 : 6 * 245)) throw new Exception("The chart layout did not change its number of plot panels.");
+            foreach (var day in new[] { from, new DateOnly(2025, 12, 31), zeroDay, to })
+                if (chart.DayAt(DayPosition(day)) != day) throw new Exception($"The {(combined ? "combined" : "monthly")} chart mapped {day:yyyy-MM-dd} to the wrong drilldown day.");
+            if (chart.DayAt(new Point(20, 120)) != null || chart.DayAt(new Point(60, 20)) != null || chart.DayAt(new Point(chart.ActualWidth - 5, 120)) != null)
+                throw new Exception("Chart axes or headings triggered a day drilldown.");
+            if (report.Days.Single(d => d.Day == zeroDay).Seconds != 0 || chart.Report != report || report.Seconds != 21600)
+                throw new Exception("Changing chart layout changed the daily data or removed zero-work days.");
+            HoursChart.SavePng(report, Path.Combine(directory, combined ? "chart-combined-six-months.png" : "chart-monthly-six-months.png"), combined);
+        }
+        (int Width, int Height) PngSize(string name)
+        {
+            using var stream = File.OpenRead(Path.Combine(directory, name));
+            var frame = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames[0];
+            return (frame.PixelWidth, frame.PixelHeight);
+        }
+        var monthly = PngSize("chart-monthly-six-months.png"); var combinedPng = PngSize("chart-combined-six-months.png");
+        if (monthly.Width != 1400 || combinedPng.Width != 1400 || monthly.Height - combinedPng.Height != 5 * 245)
+            throw new Exception("PNG export ignored the selected chart layout or changed its normal width.");
+        chart.Report = ReportBuilder.Build([], from, from.AddDays(3660), "Maximum combined range", zone: TimeZoneInfo.Utc);
+        Render();
+        if (chart.ActualHeight != 245 || chart.MinWidth < chart.Report.Days.Count * 3 + 80 || chart.ActualWidth < chart.MinWidth
+            || chart.DayAt(DayPosition(chart.Report.To)) != chart.Report.To)
+            throw new Exception("The maximum combined range squeezed or omitted daily drilldown slots.");
+        if (chart.DayAt(new Point(56 + 3 * 100, 120)) != chart.Report.From.AddDays(100)
+            || chart.DayAt(new Point(chart.ActualWidth - 24, 120)) != null)
+            throw new Exception("A daily slot boundary selected the preceding day or the right chart margin selected a day.");
+        HoursChart.SavePng(chart.Report, Path.Combine(directory, "chart-combined-maximum-range.png"), true);
+        var maximumPng = PngSize("chart-combined-maximum-range.png");
+        if (maximumPng.Width != chart.Report.Days.Count * 3 + 132 || maximumPng.Height != combinedPng.Height)
+            throw new Exception("The maximum-range PNG clipped daily slots or added monthly panels.");
+        if (window.CombineMonths.IsChecked == true || window.Chart.CombineMonths) throw new Exception("Monthly chart layout is no longer the default.");
+        window.CombineMonths.IsChecked = true;
+        if (!window.Chart.CombineMonths) throw new Exception("The chart layout checkbox did not update the chart immediately.");
+        var originalNavigation = new[] { window.TrackerNav, window.ReportsNav, window.ClientsNav, window.ProjectsNav }.Single(n => n.IsChecked == true);
+        var originalTab = window.ReportTabs.SelectedIndex;
+        window.ReportsNav.IsChecked = true; window.ReportTabs.SelectedIndex = 0; window.UpdateLayout();
+        Capture(window, Path.Combine(directory, "reports-combined-year.png"));
+        window.ReportTabs.SelectedIndex = originalTab; originalNavigation.IsChecked = true;
+        var restored = new MainWindow(new Store(store.Path));
+        try
+        {
+            if (restored.CombineMonths.IsChecked != true || !restored.Chart.CombineMonths) throw new Exception("The combined chart layout was not restored.");
+        }
+        finally { restored.Close(); }
+        window.CombineMonths.IsChecked = false;
+        if (window.Chart.CombineMonths) throw new Exception("The chart could not return to its monthly layout.");
+        restored = new MainWindow(new Store(store.Path));
+        try
+        {
+            if (restored.CombineMonths.IsChecked == true || restored.Chart.CombineMonths) throw new Exception("The monthly chart layout was not restored.");
+        }
+        finally { restored.Close(); }
     }
     private static void CheckProjectColors(MainWindow window, Store store, string directory, long projectId)
     {

@@ -15,6 +15,7 @@ public partial class MainWindow : Window
 {
     private readonly Store _store;
     private readonly ProjectColors _projectColors;
+    private readonly string _chartSettings;
     private readonly DispatcherTimer _clock;
     private bool _ready, _changingFilters, _settingRange;
     private int _rangeMonths;
@@ -27,10 +28,14 @@ public partial class MainWindow : Window
     {
         _store = store;
         _projectColors = new ProjectColors(store.Path);
+        _chartSettings = store.Path + ".chart-layout.json";
         InitializeComponent();
         ((ProjectColorBrushConverter)Resources["ProjectColorBrush"]).Colors = _projectColors;
         try { _projectColors.Load(); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { StatusText.Text = "Could not load project colors: " + error.Message; }
+        try { if (File.Exists(_chartSettings)) CombineMonths.IsChecked = JsonSerializer.Deserialize<bool>(File.ReadAllText(_chartSettings)); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { StatusText.Text = "Could not load chart layout: " + error.Message; }
+        Chart.CombineMonths = CombineMonths.IsChecked == true;
         var selectedColumns = ReportClipboard.Columns.Where(c => c.Key is not ("ProjectClient" or "Billing")).Select(c => c.Key).ToArray();
         var copySettings = store.Path + ".copy-columns.json";
         try { if (File.Exists(copySettings)) selectedColumns = JsonSerializer.Deserialize<string[]>(File.ReadAllText(copySettings)) ?? selectedColumns; }
@@ -211,6 +216,16 @@ public partial class MainWindow : Window
         RefreshReport();
     });
     private void ApplyReport(object sender, RoutedEventArgs e) => Try(RefreshReport);
+    private void ChartLayoutChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_ready) return;
+        Try(() => {
+            Chart.CombineMonths = CombineMonths.IsChecked == true;
+            var temporary = _chartSettings + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try { File.WriteAllText(temporary, JsonSerializer.Serialize(Chart.CombineMonths)); File.Move(temporary, _chartSettings, true); }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        });
+    }
     internal void RefreshReport()
     {
         if (FromDate.SelectedDate is not DateTime from || ToDate.SelectedDate is not DateTime to) throw new ArgumentException("Choose a start and end date.");
@@ -235,7 +250,7 @@ public partial class MainWindow : Window
         var prefix = string.Join("-", new[] { "TickRiver" }.Concat(parts));
         return $"{prefix}-{_report!.From:yyyy-MM-dd}-{_report.To:yyyy-MM-dd}.{extension}";
     }
-    private void ExportPng(object sender, RoutedEventArgs e) => Try(() => { RefreshReport(); var dialog = new SaveFileDialog { Filter = "PNG chart|*.png", FileName = ExportFileName("png") }; if (dialog.ShowDialog(this) == true) { HoursChart.SavePng(_report!, dialog.FileName); StatusText.Text = $"Chart saved: {dialog.FileName}"; } });
+    private void ExportPng(object sender, RoutedEventArgs e) => Try(() => { RefreshReport(); var dialog = new SaveFileDialog { Filter = "PNG chart|*.png", FileName = ExportFileName("png") }; if (dialog.ShowDialog(this) == true) { HoursChart.SavePng(_report!, dialog.FileName, Chart.CombineMonths); StatusText.Text = $"Chart saved: {dialog.FileName}"; } });
     private void ExportExcel(object sender, RoutedEventArgs e) => Try(() => { RefreshReport(); var dialog = new SaveFileDialog { Filter = "Excel workbook|*.xlsx", FileName = ExportFileName("xlsx") }; if (dialog.ShowDialog(this) == true) { ExcelExport.Save(_report!, dialog.FileName); StatusText.Text = $"Workbook saved: {dialog.FileName}"; } });
     private void ChooseCopyColumns(object sender, RoutedEventArgs e)
     {
