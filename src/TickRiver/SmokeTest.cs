@@ -153,6 +153,7 @@ internal static class SmokeTest
             if (window.FromDate.SelectedDate != initialFrom || window.ToDate.SelectedDate != initialTo) throw new Exception("Calendar range did not return to original.");
         }
         CheckChartLayouts(window, store, directory);
+        CheckReportRanges(directory);
         var connections = new ConnectionsDialog(window, [
             "Codex: Bundled executable and database verified.",
             "Claude Code: Bundled executable and database verified.",
@@ -205,7 +206,93 @@ internal static class SmokeTest
         using (var idleControl = new InstanceControl(() => { }, 0)) { System.Threading.Thread.Sleep(50); }
         if (!closed) throw new Exception("Closing kept the main window running.");
         if (new Store(store.Path).Entries().Single(entry => entry.Id == updateTimer).End != null) throw new Exception("Installer shutdown stopped the active timer.");
-        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: project color picker, persistence, reset, cancellation, matching tracker/report/project/timer markers without stopping the timer, window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, monthly and combined charts across a year boundary, zero-day drilldown, maximum-range chart width, saved chart layout, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
+        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: project color picker, persistence, reset, cancellation, matching tracker/report/project/timer markers without stopping the timer, window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, monthly and combined charts across a year boundary, zero-day drilldown, maximum-range chart width, saved chart layout, saved report ranges and relative presets, invalid range settings recovery, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
+    }
+    private static void CheckReportRanges(string directory)
+    {
+        var database = Path.Combine(directory, "range-" + Guid.NewGuid().ToString("N") + ".sqlite");
+        var settings = database + ".report-range.json";
+        var window = new MainWindow(new Store(database));
+        void CheckRange(MainWindow target, string preset, DateTime from, DateTime to)
+        {
+            if ((string?)target.RangePreset.SelectedItem != preset || target.FromDate.SelectedDate != from || target.ToDate.SelectedDate != to)
+                throw new Exception($"Report range {preset} did not retain its expected dates {from:yyyy-MM-dd} through {to:yyyy-MM-dd}.");
+        }
+        void Restart(Action<MainWindow> check)
+        {
+            var restored = new MainWindow(new Store(database));
+            try
+            {
+                if (restored.TrackerNav.IsChecked != true) throw new Exception("Restoring the report range changed the startup page.");
+                check(restored);
+            }
+            finally { restored.Close(); }
+        }
+        string Saved(string preset, DateTime from, DateTime to, int months) => System.Text.Json.JsonSerializer.Serialize(new {
+            Preset = preset, From = DateOnly.FromDateTime(from), To = DateOnly.FromDateTime(to), RangeMonths = months
+        });
+        try
+        {
+            foreach (var preset in window.RangePreset.Items.Cast<string>().Where(p => p != "Custom range").ToArray())
+            {
+                window.RangePreset.SelectedItem = preset;
+                var from = window.FromDate.SelectedDate!.Value; var to = window.ToDate.SelectedDate!.Value;
+                Restart(restored => CheckRange(restored, preset, from, to));
+            }
+            var month = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+            File.WriteAllText(settings, Saved("This month", new DateTime(2001, 1, 1), new DateTime(2001, 1, 31), 1));
+            Restart(restored => CheckRange(restored, "This month", month, month.AddMonths(1).AddDays(-1)));
+            var customFrom = new DateTime(2025, 10, 15); var customTo = new DateTime(2026, 3, 14);
+            window.FromDate.SelectedDate = customFrom; window.ToDate.SelectedDate = customTo;
+            Restart(restored => {
+                CheckRange(restored, "Custom range", customFrom, customTo);
+                restored.NextRangeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var days = (customTo - customFrom).Days + 1;
+                CheckRange(restored, "Custom range", customFrom.AddDays(days), customTo.AddDays(days));
+            });
+            window.RangePreset.SelectedItem = "This month";
+            var selectedFrom = window.FromDate.SelectedDate!.Value; var selectedTo = window.ToDate.SelectedDate!.Value;
+            window.RangePreset.SelectedItem = "Custom range";
+            Restart(restored => CheckRange(restored, "Custom range", selectedFrom, selectedTo));
+            foreach (var months in new[] { 1, 3, 12 })
+            {
+                var first = new DateTime(2026, 1, 1); var last = first.AddMonths(months).AddDays(-1);
+                var nextFrom = first.AddMonths(months); var nextTo = nextFrom.AddMonths(months).AddDays(-1);
+                File.WriteAllText(settings, Saved("Custom range", first, last, months));
+                Restart(restored => {
+                    CheckRange(restored, "Custom range", first, last);
+                    restored.NextRangeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    CheckRange(restored, "Custom range", nextFrom, nextTo);
+                });
+                Restart(restored => {
+                    CheckRange(restored, "Custom range", nextFrom, nextTo);
+                    restored.PreviousRangeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    CheckRange(restored, "Custom range", first, last);
+                });
+            }
+            window.RangePreset.SelectedItem = "This month";
+            var validSettings = File.ReadAllText(settings);
+            window.FromDate.SelectedDate = null;
+            if (File.ReadAllText(settings) != validSettings) throw new Exception("An incomplete date edit replaced the last valid report range.");
+            window.ToDate.SelectedDate = DateTime.Today.AddYears(-1); window.FromDate.SelectedDate = DateTime.Today;
+            if (File.ReadAllText(settings) != validSettings) throw new Exception("An out-of-order date edit replaced the last valid report range.");
+            window.ToDate.SelectedDate = DateTime.Today.AddDays(3661);
+            if (File.ReadAllText(settings) != validSettings) throw new Exception("An excessive date range replaced the last valid report range.");
+            Restart(restored => CheckRange(restored, "This month", month, month.AddMonths(1).AddDays(-1)));
+            foreach (var invalid in new[] {
+                "{broken", Saved("Unknown preset", month, month, 0),
+                Saved("Custom range", month.AddDays(1), month, 0), Saved("Custom range", month, month.AddDays(3661), 0)
+            })
+            {
+                File.WriteAllText(settings, invalid);
+                Restart(restored => {
+                    CheckRange(restored, "This month", month, month.AddMonths(1).AddDays(-1));
+                    restored.ReportsNav.IsChecked = true; restored.RefreshReport();
+                    if (File.ReadAllText(settings) != invalid) throw new Exception("Loading or refreshing the fallback report overwrote invalid saved range settings.");
+                });
+            }
+        }
+        finally { window.Close(); }
     }
     private static void CheckChartLayouts(MainWindow window, Store store, string directory)
     {

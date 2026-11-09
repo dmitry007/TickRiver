@@ -16,8 +16,9 @@ public partial class MainWindow : Window
     private readonly Store _store;
     private readonly ProjectColors _projectColors;
     private readonly string _chartSettings;
+    private readonly string _rangeSettings;
     private readonly DispatcherTimer _clock;
-    private bool _ready, _changingFilters, _settingRange;
+    private bool _ready, _changingFilters, _settingRange, _restoringRange;
     private int _rangeMonths;
     private long _lastDataVersion;
     private readonly SqliteConnection _changeMonitor;
@@ -29,6 +30,7 @@ public partial class MainWindow : Window
         _store = store;
         _projectColors = new ProjectColors(store.Path);
         _chartSettings = store.Path + ".chart-layout.json";
+        _rangeSettings = store.Path + ".report-range.json";
         InitializeComponent();
         ((ProjectColorBrushConverter)Resources["ProjectColorBrush"]).Colors = _projectColors;
         try { _projectColors.Load(); }
@@ -58,7 +60,7 @@ public partial class MainWindow : Window
         RangePreset.ItemsSource = new[] { "Today", "Yesterday", "This week", "Last week", "This month", "Last month", "This quarter", "Last quarter", "This year", "Last year", "Custom range" };
         _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) }; _clock.Tick += (_, _) => SynchronizeTimer(); _clock.Start();
         Chart.DayClicked += day => { if (_report == null) return; ReportGrid.ItemsSource = _report.Rows.Where(r => r.Day == day).OrderByDescending(r => r.Start).ToArray(); ReportTabs.SelectedIndex = 1; StatusText.Text = $"Showing {day:MMMM d, yyyy}. Apply the report again to show the full range."; };
-        _ready = true; Refresh(); RangePreset.SelectedItem = "This month"; TrackerNav.IsChecked = true;
+        _ready = true; Refresh(); RestoreReportRange(); TrackerNav.IsChecked = true;
         Closing += OnClosing;
         Closed += (_, _) => { _clock.Stop(); _changeMonitor.Dispose(); };
     }
@@ -182,7 +184,8 @@ public partial class MainWindow : Window
     }
     private void PresetChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_ready || RangePreset.SelectedItem is not string preset || preset == "Custom range") return;
+        if (!_ready || _settingRange || RangePreset.SelectedItem is not string preset) return;
+        if (preset == "Custom range") { SaveReportRange(); return; }
         var today = DateTime.Today; var monday = today.AddDays(-((int)today.DayOfWeek + 6) % 7);
         var month = new DateTime(today.Year, today.Month, 1); var quarter = new DateTime(today.Year, (today.Month - 1) / 3 * 3 + 1, 1);
         (DateTime from, DateTime to) = preset switch {
@@ -197,11 +200,14 @@ public partial class MainWindow : Window
         try { FromDate.SelectedDate = from; ToDate.SelectedDate = to; }
         finally { _settingRange = false; }
         Try(RefreshReport);
+        SaveReportRange();
     }
     private void CustomDateChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_ready || _settingRange) return;
-        _rangeMonths = 0; RangePreset.SelectedItem = "Custom range";
+        _rangeMonths = 0;
+        if ((string?)RangePreset.SelectedItem != "Custom range") RangePreset.SelectedItem = "Custom range";
+        else SaveReportRange();
     }
     private void PreviousRange(object sender, RoutedEventArgs e) => ShiftRange(-1);
     private void NextRange(object sender, RoutedEventArgs e) => ShiftRange(1);
@@ -209,12 +215,49 @@ public partial class MainWindow : Window
         if (FromDate.SelectedDate is not DateTime from || ToDate.SelectedDate is not DateTime to) return;
         if (_rangeMonths > 0) { from = from.AddMonths(direction * _rangeMonths); to = from.AddMonths(_rangeMonths).AddDays(-1); }
         else { var shift = (to - from).Days + 1; from = from.AddDays(shift * direction); to = to.AddDays(shift * direction); }
-        RangePreset.SelectedItem = "Custom range";
         _settingRange = true;
-        try { FromDate.SelectedDate = from; ToDate.SelectedDate = to; }
+        try { RangePreset.SelectedItem = "Custom range"; FromDate.SelectedDate = from; ToDate.SelectedDate = to; }
         finally { _settingRange = false; }
         RefreshReport();
+        SaveReportRange();
     });
+    private sealed record ReportRangeSettings(string? Preset, DateOnly? From, DateOnly? To, int RangeMonths);
+    private void RestoreReportRange()
+    {
+        _restoringRange = true;
+        try
+        {
+            if (!File.Exists(_rangeSettings)) { RangePreset.SelectedItem = "This month"; return; }
+            var saved = JsonSerializer.Deserialize<ReportRangeSettings>(File.ReadAllText(_rangeSettings)) ?? throw new JsonException("The saved report range is empty.");
+            if (saved.Preset == null || !RangePreset.Items.Contains(saved.Preset)) throw new JsonException("The saved date preset is not recognized.");
+            if (saved.Preset != "Custom range") { RangePreset.SelectedItem = saved.Preset; return; }
+            if (saved.From is not DateOnly from || saved.To is not DateOnly to || to < from || to.DayNumber - from.DayNumber > 3660
+                || saved.RangeMonths is not (0 or 1 or 3 or 12)) throw new JsonException("The saved custom date range is invalid.");
+            _settingRange = true;
+            try { RangePreset.SelectedItem = "Custom range"; FromDate.SelectedDate = from.ToDateTime(TimeOnly.MinValue); ToDate.SelectedDate = to.ToDateTime(TimeOnly.MinValue); _rangeMonths = saved.RangeMonths; }
+            finally { _settingRange = false; }
+            RefreshReport();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
+        {
+            RangePreset.SelectedItem = "This month";
+            StatusText.Text = "Could not load report range: " + error.Message;
+        }
+        finally { _restoringRange = false; }
+    }
+    private void SaveReportRange()
+    {
+        if (_restoringRange || FromDate.SelectedDate is not DateTime from || ToDate.SelectedDate is not DateTime to
+            || to < from || (to - from).TotalDays > 3660 || RangePreset.SelectedItem is not string preset) return;
+        try
+        {
+            var saved = new ReportRangeSettings(preset, DateOnly.FromDateTime(from), DateOnly.FromDateTime(to), _rangeMonths);
+            var temporary = _rangeSettings + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try { File.WriteAllText(temporary, JsonSerializer.Serialize(saved)); File.Move(temporary, _rangeSettings, true); }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { StatusText.Text = "Could not save report range: " + error.Message; }
+    }
     private void ApplyReport(object sender, RoutedEventArgs e) => Try(RefreshReport);
     private void ChartLayoutChanged(object sender, RoutedEventArgs e)
     {
