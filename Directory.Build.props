@@ -6,6 +6,6 @@
     <DebugType>portable</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <EmbedAllSources>true</EmbedAllSources>
-    <Version>0.1.11</Version>
+    <Version>0.1.12</Version>
   </PropertyGroup>
 </Project>

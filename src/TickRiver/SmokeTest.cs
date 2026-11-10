@@ -154,6 +154,7 @@ internal static class SmokeTest
         }
         CheckChartLayouts(window, store, directory);
         CheckReportRanges(directory);
+        CheckLiveTrackerTotals(directory);
         var connections = new ConnectionsDialog(window, [
             "Codex: Bundled executable and database verified.",
             "Claude Code: Bundled executable and database verified.",
@@ -206,7 +207,62 @@ internal static class SmokeTest
         using (var idleControl = new InstanceControl(() => { }, 0)) { System.Threading.Thread.Sleep(50); }
         if (!closed) throw new Exception("Closing kept the main window running.");
         if (new Store(store.Path).Entries().Single(entry => entry.Id == updateTimer).End != null) throw new Exception("Installer shutdown stopped the active timer.");
-        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: project color picker, persistence, reset, cancellation, matching tracker/report/project/timer markers without stopping the timer, window lifecycle, timer controls, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, monthly and combined charts across a year boundary, zero-day drilldown, maximum-range chart width, saved chart layout, saved report ranges and relative presets, invalid range settings recovery, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
+        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: project color picker, persistence, reset, cancellation, matching tracker/report/project/timer markers without stopping the timer, window lifecycle, timer controls, live tracker totals and stable day headers across day/week/month rollover, completed-only reports during tracking, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, monthly and combined charts across a year boundary, zero-day drilldown, maximum-range chart width, saved chart layout, saved report ranges and relative presets, invalid range settings recovery, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
+    }
+    private static void CheckLiveTrackerTotals(string directory)
+    {
+        var store = new Store(Path.Combine(directory, "live-totals-" + Guid.NewGuid().ToString("N") + ".sqlite"));
+        var client = store.SaveClient(0, "Live totals", "USD", 125, false);
+        var project = store.SaveProject(0, client, "Calendar boundaries", null, true, false);
+        var start = TimeFormat.ParseLocal(new DateTime(2026, 5, 31), "23:59:30");
+        var nextDay = TimeFormat.ParseLocal(new DateTime(2026, 6, 1), "00:00:30");
+        var runningId = store.Start(project, "Running across Sunday and month end", start);
+        var window = new MainWindow(store);
+        void Totals(long seconds)
+        {
+            foreach (var label in new[] { window.TodayTotal, window.WeekTotal, window.MonthTotal })
+                if (!label.Text.EndsWith(TimeFormat.Duration(seconds), StringComparison.Ordinal)) throw new Exception($"Live tracker summary did not show {TimeFormat.Duration(seconds)}: {label.Text}");
+        }
+        string HeaderText(object name) => name.GetType().GetProperty("Text")?.GetValue(name) as string ?? throw new Exception("The tracker day header has no notifying Text value.");
+        try
+        {
+            window.UpdateClock(start.AddSeconds(10)); Totals(10);
+            window.UpdateClock(start.AddSeconds(20)); Totals(20);
+            if (((System.Windows.Data.ListCollectionView)window.EntriesGrid.ItemsSource).Count != 0) throw new Exception("The active timer appeared in the completed-entry grid.");
+            store.SaveEntry(0, project, "Completed before tracking", start.AddSeconds(-90), start.AddSeconds(-30), 125, true, false);
+            window.Refresh(); window.UpdateClock(start.AddSeconds(20)); Totals(80);
+            var view = (System.Windows.Data.ListCollectionView)window.EntriesGrid.ItemsSource;
+            var selected = view.Cast<TimeEntry>().Single(); window.EntriesGrid.SelectedItem = selected;
+            var group = (System.Windows.Data.CollectionViewGroup)view.Groups![0]; var name = group.Name;
+            if (name is not System.ComponentModel.INotifyPropertyChanged notifying) throw new Exception("The live day header cannot notify the displayed binding.");
+            var changed = false; notifying.PropertyChanged += (_, e) => { if (e.PropertyName == "Text") changed = true; };
+            window.UpdateClock(start.AddSeconds(25)); Totals(85);
+            if (!changed || !HeaderText(name).EndsWith("00:01:25", StringComparison.Ordinal)
+                || !ReferenceEquals(view, window.EntriesGrid.ItemsSource) || !ReferenceEquals(selected, window.EntriesGrid.SelectedItem)
+                || !ReferenceEquals(name, ((System.Windows.Data.CollectionViewGroup)view.Groups![0]).Name))
+                throw new Exception("A timer tick failed to notify the day header or replaced the grid view, selection, or header identity.");
+            window.ShowActivated = false; window.Show(); window.UpdateLayout(); window.UpdateClock(start.AddSeconds(25));
+            Capture(window, Path.Combine(directory, "tracker-live-totals.png"));
+            window.Width = window.MinWidth; window.UpdateLayout(); window.UpdateClock(start.AddSeconds(25));
+            Capture(window, Path.Combine(directory, "tracker-live-totals-minimum.png")); window.Hide();
+            window.UpdateClock(nextDay); Totals(30);
+            if (window.TimerLabel.Text != "00:01:00" || !HeaderText(name).EndsWith("00:02:00", StringComparison.Ordinal)
+                || !ReferenceEquals(view, window.EntriesGrid.ItemsSource) || !ReferenceEquals(selected, window.EntriesGrid.SelectedItem))
+                throw new Exception("Crossing the local day/week/month boundary changed full-session grouping or reset the grid selection.");
+            if (store.Entries(runningOnly: true).Single().End != null) throw new Exception("Displaying live totals saved an end time for the active timer.");
+            window.FromDate.SelectedDate = new DateTime(2026, 5, 31); window.ToDate.SelectedDate = new DateTime(2026, 6, 1); window.RefreshReport();
+            if (window.Chart.Report!.Seconds != 60 || window.Chart.Report.Rows.Any(r => r.Entry.Id == runningId))
+                throw new Exception("A report included unsaved active time from the tracker summaries.");
+            store.Stop(nextDay, runningId); window.Refresh(); window.UpdateClock(nextDay); Totals(30);
+            if (window.TimerLabel.Text != "00:00:00" || window.Chart.Report!.Seconds != 120
+                || !HeaderText(((System.Windows.Data.CollectionViewGroup)((System.Windows.Data.ListCollectionView)window.EntriesGrid.ItemsSource).Groups![0]).Name).EndsWith("00:02:00", StringComparison.Ordinal))
+                throw new Exception("Stopping the timer double-counted its elapsed time or changed completed-entry day grouping.");
+        }
+        finally
+        {
+            if (store.Entries(runningOnly: true).SingleOrDefault() is { } running) store.Stop(nextDay, running.Id);
+            window.Close();
+        }
     }
     private static void CheckReportRanges(string directory)
     {

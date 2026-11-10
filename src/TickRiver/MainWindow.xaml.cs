@@ -24,6 +24,11 @@ public partial class MainWindow : Window
     private readonly SqliteConnection _changeMonitor;
     private TimeEntry? _running;
     private Report? _report;
+    private List<TimeEntry> _completedEntries = [];
+    private Dictionary<string, DayTotal> _dayTotals = new();
+    private DateOnly? _summaryDate;
+    private DateOnly _weekStart, _monthStart;
+    private long _completedToday, _completedWeek, _completedMonth;
 
     public MainWindow(Store store)
     {
@@ -99,21 +104,40 @@ public partial class MainWindow : Window
         ClientFilter.SelectedItem = ((IEnumerable<Client>)ClientFilter.ItemsSource).FirstOrDefault(c => c.Id == clientFilter) ?? ((IEnumerable<Client>)ClientFilter.ItemsSource).First();
         SetProjectFilter(projectFilter);
         _changingFilters = false;
-        var completed = entries.Where(e => e.End != null).ToList();
+        var completed = _completedEntries = entries.Where(e => e.End != null).ToList();
         var view = new ListCollectionView(completed);
-        var totals = completed.GroupBy(e => e.DateLabel).ToDictionary(g => g.Key, g => g.Sum(e => e.Seconds));
-        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(TimeEntry.DateLabel), new DayTotalConverter(totals)));
+        _dayTotals = completed.GroupBy(e => e.DateLabel).ToDictionary(g => g.Key, g => new DayTotal(g.Key, g.Sum(e => e.Seconds)));
+        view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(TimeEntry.DateLabel), new DayTotalConverter(_dayTotals)));
         EntriesGrid.ItemsSource = view; TrackerEmpty.Visibility = completed.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        var today = DateOnly.FromDateTime(DateTime.Now);
-        var monday = today.AddDays(-((int)today.DayOfWeek + 6) % 7);
-        WeekTotal.Text = $"This week · {ReportBuilder.Build(entries, monday, today, "").Duration}";
+        TrackerEmpty.Text = _running == null ? "Create a client and project, then press Start. No tasks required."
+            : "Your timer is running. Saved time entries will appear here when you stop it.";
+        _summaryDate = null;
         UpdateClock();
         if (FromDate.SelectedDate != null && ToDate.SelectedDate != null) RefreshReport();
     }
-    private void UpdateClock()
+    internal void UpdateClock(DateTimeOffset? timestamp = null)
     {
-        var seconds = _running == null ? 0 : Math.Max(0, (TimeFormat.Now.UtcTicks - _running.Start.UtcTicks) / TimeSpan.TicksPerSecond);
+        var now = timestamp ?? TimeFormat.Now;
+        var seconds = _running == null ? 0 : Math.Max(0, (now.UtcTicks - _running.Start.UtcTicks) / TimeSpan.TicksPerSecond);
         TimerLabel.Text = TimeFormat.Duration(seconds);
+        if (_running != null && _dayTotals.TryGetValue(_running.DateLabel, out var dayTotal)) dayTotal.Update(dayTotal.CompletedSeconds + seconds);
+        var today = DateOnly.FromDateTime(now.LocalDateTime);
+        if (_summaryDate != today)
+        {
+            _weekStart = today.AddDays(-((int)today.DayOfWeek + 6) % 7);
+            _monthStart = new DateOnly(today.Year, today.Month, 1);
+            var start = _weekStart < _monthStart ? _weekStart : _monthStart;
+            var days = ReportBuilder.Build(_completedEntries, start, today, "").Days;
+            _completedToday = days.Single(d => d.Day == today).Seconds;
+            _completedWeek = days.Where(d => d.Day >= _weekStart).Sum(d => d.Seconds);
+            _completedMonth = days.Where(d => d.Day >= _monthStart).Sum(d => d.Seconds);
+            _summaryDate = today;
+        }
+        IReadOnlyList<DailyHours> liveDays = _running != null && now >= _running.Start
+            ? ReportBuilder.Build([_running with { End = now }], _weekStart < _monthStart ? _weekStart : _monthStart, today, "").Days : [];
+        TodayTotal.Text = $"Today · {TimeFormat.Duration(_completedToday + liveDays.Where(d => d.Day == today).Sum(d => d.Seconds))}";
+        WeekTotal.Text = $"This week · {TimeFormat.Duration(_completedWeek + liveDays.Where(d => d.Day >= _weekStart).Sum(d => d.Seconds))}";
+        MonthTotal.Text = $"This month · {TimeFormat.Duration(_completedMonth + liveDays.Where(d => d.Day >= _monthStart).Sum(d => d.Seconds))}";
     }
     internal void SynchronizeTimer()
     {
@@ -354,9 +378,22 @@ public partial class MainWindow : Window
         catch (Exception error) { e.Cancel = true; System.Windows.MessageBox.Show(this, error.Message); }
     }
 
-    private sealed class DayTotalConverter(Dictionary<string, long> totals) : IValueConverter
+    private sealed class DayTotal(string dateLabel, long completedSeconds) : INotifyPropertyChanged
     {
-        public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => $"{value}    ·    {TimeFormat.Duration(totals[(string)value])}";
+        private long _seconds = completedSeconds;
+        public long CompletedSeconds { get; } = completedSeconds;
+        public string Text => $"{dateLabel}    ·    {TimeFormat.Duration(_seconds)}";
+        public event PropertyChangedEventHandler? PropertyChanged;
+        public void Update(long seconds)
+        {
+            if (_seconds == seconds) return;
+            _seconds = seconds; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Text)));
+        }
+        public override string ToString() => Text;
+    }
+    private sealed class DayTotalConverter(Dictionary<string, DayTotal> totals) : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => totals[(string)value];
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotSupportedException();
     }
 }
