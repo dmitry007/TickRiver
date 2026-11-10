@@ -274,8 +274,10 @@ internal static class SmokeTest
             if (window.Chart.Report!.Seconds != 60 || window.Chart.Report.Rows.Any(r => r.Entry.Id == runningId))
                 throw new Exception("A report included unsaved active time from the tracker summaries.");
             store.Stop(nextDay, runningId); window.Refresh(); window.UpdateClock(nextDay); Totals(30);
-            if (window.Title != "TickRiver" || window.TrackerNav.Content.ToString() != "◷   Time Tracker")
+            if (window.Title != "TickRiver" || window.TrackerNav.Content.ToString() != "Time Tracker")
                 throw new Exception("Stopping the timer did not restore the idle navigation and window caption.");
+            window.Width = 1320; window.Show(); window.UpdateLayout();
+            Capture(window, Path.Combine(directory, "tracker-clock-idle.png"));
             if (window.TimerLabel.Text != "00:00:00" || window.Chart.Report!.Seconds != 120
                 || !HeaderText(((System.Windows.Data.CollectionViewGroup)((System.Windows.Data.ListCollectionView)window.EntriesGrid.ItemsSource).Groups![0]).Name).EndsWith("00:02:00", StringComparison.Ordinal))
                 throw new Exception("Stopping the timer double-counted its elapsed time or changed completed-entry day grouping.");

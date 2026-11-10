@@ -120,7 +120,7 @@ public partial class MainWindow : Window
         var now = timestamp ?? TimeFormat.Now;
         var seconds = _running == null ? 0 : Math.Max(0, (now.UtcTicks - _running.Start.UtcTicks) / TimeSpan.TicksPerSecond);
         TimerLabel.Text = TimeFormat.Duration(seconds);
-        TrackerNav.Content = _running == null ? "◷   Time Tracker" : $"Time Tracker - {TimerLabel.Text}";
+        TrackerNav.Content = _running == null ? "Time Tracker" : $"Time Tracker - {TimerLabel.Text}";
         Title = _running == null ? "TickRiver" : $"TickRiver - {TimerLabel.Text} - {_running.ProjectName}";
         if (_running != null && _dayTotals.TryGetValue(_running.DateLabel, out var dayTotal)) dayTotal.Update(dayTotal.CompletedSeconds + seconds);
         var today = DateOnly.FromDateTime(now.LocalDateTime);
