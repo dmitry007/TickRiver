@@ -54,6 +54,8 @@ internal static class SmokeTest
         if (crash == null || !File.ReadAllText(crash).Contains("Diagnostic fixture")) throw new Exception("Diagnostic log missing.");
         if (CrashLog.Write(new Exception("Expected log failure"), "Smoke test", store.Path) != null) throw new Exception("Unwritable diagnostic path should be tolerated.");
         if (window.TimerButton.Content.ToString() != "STOP" || window.TimerLabel.Text == "00:00:00") throw new Exception("Persisted timer was not recovered.");
+        if (window.TrackerNav.Content.ToString() != "Time Tracker - " + window.TimerLabel.Text || window.Title != "TickRiver - " + window.TimerLabel.Text + " - Website maintenance")
+            throw new Exception("The recovered active timer was missing from the navigation or window caption.");
         CheckProjectColors(window, store, directory, project);
         window.TimerButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (store.Entries().Any(e => e.End == null)) throw new Exception("Stop button failed to save the timer.");
@@ -207,7 +209,7 @@ internal static class SmokeTest
         using (var idleControl = new InstanceControl(() => { }, 0)) { System.Threading.Thread.Sleep(50); }
         if (!closed) throw new Exception("Closing kept the main window running.");
         if (new Store(store.Path).Entries().Single(entry => entry.Id == updateTimer).End != null) throw new Exception("Installer shutdown stopped the active timer.");
-        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: project color picker, persistence, reset, cancellation, matching tracker/report/project/timer markers without stopping the timer, window lifecycle, timer controls, live tracker totals and stable day headers across day/week/month rollover, completed-only reports during tracking, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, monthly and combined charts across a year boundary, zero-day drilldown, maximum-range chart width, saved chart layout, saved report ranges and relative presets, invalid range settings recovery, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
+        File.WriteAllText(Path.Combine(directory, "result.txt"), "PASS: project color picker, persistence, reset, cancellation, matching tracker/report/project/timer markers without stopping the timer, window lifecycle, timer controls, live navigation and caption timer across pages including 100-hour durations, live tracker totals and stable day headers across day/week/month rollover, completed-only reports during tracking, external historical additions and edits in tracker/reports, stale desktop edit rejection, calendar navigation, monthly and combined charts across a year boundary, zero-day drilldown, maximum-range chart width, saved chart layout, saved report ranges and relative presets, invalid range settings recovery, all screens, PNG and Excel exports, client/project filenames including Unicode and unsafe/long names, configurable report copy, HTML byte offsets and escaping, TSV quoting, displayed row ordering and drilldown, saved column selection.");
     }
     private static void CheckLiveTrackerTotals(string directory)
     {
@@ -223,11 +225,17 @@ internal static class SmokeTest
             foreach (var label in new[] { window.TodayTotal, window.WeekTotal, window.MonthTotal })
                 if (!label.Text.EndsWith(TimeFormat.Duration(seconds), StringComparison.Ordinal)) throw new Exception($"Live tracker summary did not show {TimeFormat.Duration(seconds)}: {label.Text}");
         }
+        void Caption(long seconds)
+        {
+            var duration = TimeFormat.Duration(seconds);
+            if (window.TrackerNav.Content.ToString() != "Time Tracker - " + duration || window.Title != "TickRiver - " + duration + " - Calendar boundaries")
+                throw new Exception("The navigation timer or window caption did not retain the full elapsed duration and expected text.");
+        }
         string HeaderText(object name) => name.GetType().GetProperty("Text")?.GetValue(name) as string ?? throw new Exception("The tracker day header has no notifying Text value.");
         try
         {
-            window.UpdateClock(start.AddSeconds(10)); Totals(10);
-            window.UpdateClock(start.AddSeconds(20)); Totals(20);
+            window.UpdateClock(start.AddSeconds(10)); Totals(10); Caption(10);
+            window.UpdateClock(start.AddSeconds(20)); Totals(20); Caption(20);
             if (((System.Windows.Data.ListCollectionView)window.EntriesGrid.ItemsSource).Count != 0) throw new Exception("The active timer appeared in the completed-entry grid.");
             store.SaveEntry(0, project, "Completed before tracking", start.AddSeconds(-90), start.AddSeconds(-30), 125, true, false);
             window.Refresh(); window.UpdateClock(start.AddSeconds(20)); Totals(80);
@@ -236,16 +244,28 @@ internal static class SmokeTest
             var group = (System.Windows.Data.CollectionViewGroup)view.Groups![0]; var name = group.Name;
             if (name is not System.ComponentModel.INotifyPropertyChanged notifying) throw new Exception("The live day header cannot notify the displayed binding.");
             var changed = false; notifying.PropertyChanged += (_, e) => { if (e.PropertyName == "Text") changed = true; };
-            window.UpdateClock(start.AddSeconds(25)); Totals(85);
+            window.UpdateClock(start.AddSeconds(25)); Totals(85); Caption(25);
             if (!changed || !HeaderText(name).EndsWith("00:01:25", StringComparison.Ordinal)
                 || !ReferenceEquals(view, window.EntriesGrid.ItemsSource) || !ReferenceEquals(selected, window.EntriesGrid.SelectedItem)
                 || !ReferenceEquals(name, ((System.Windows.Data.CollectionViewGroup)view.Groups![0]).Name))
                 throw new Exception("A timer tick failed to notify the day header or replaced the grid view, selection, or header identity.");
+            var elapsed = 26;
+            foreach (var navigation in new[] { window.ReportsNav, window.ClientsNav, window.ProjectsNav })
+            {
+                navigation.IsChecked = true; window.UpdateClock(start.AddSeconds(elapsed)); Caption(elapsed++);
+                if (navigation.IsChecked != true || window.TrackerNav.IsChecked == true)
+                    throw new Exception("Updating the navigation timer changed the selected page.");
+            }
+            window.TrackerNav.IsChecked = true;
             window.ShowActivated = false; window.Show(); window.UpdateLayout(); window.UpdateClock(start.AddSeconds(25));
             Capture(window, Path.Combine(directory, "tracker-live-totals.png"));
+            window.ReportsNav.IsChecked = true; window.UpdateClock(start.AddHours(100).AddSeconds(7)); Caption(360007);
+            if (window.ReportsNav.IsChecked != true || window.TrackerNav.IsChecked == true) throw new Exception("A long-running timer changed the selected Reports page.");
+            Capture(window, Path.Combine(directory, "tracker-caption-reports-long.png"));
+            window.TrackerNav.IsChecked = true;
             window.Width = window.MinWidth; window.UpdateLayout(); window.UpdateClock(start.AddSeconds(25));
             Capture(window, Path.Combine(directory, "tracker-live-totals-minimum.png")); window.Hide();
-            window.UpdateClock(nextDay); Totals(30);
+            window.UpdateClock(nextDay); Totals(30); Caption(60);
             if (window.TimerLabel.Text != "00:01:00" || !HeaderText(name).EndsWith("00:02:00", StringComparison.Ordinal)
                 || !ReferenceEquals(view, window.EntriesGrid.ItemsSource) || !ReferenceEquals(selected, window.EntriesGrid.SelectedItem))
                 throw new Exception("Crossing the local day/week/month boundary changed full-session grouping or reset the grid selection.");
@@ -254,6 +274,8 @@ internal static class SmokeTest
             if (window.Chart.Report!.Seconds != 60 || window.Chart.Report.Rows.Any(r => r.Entry.Id == runningId))
                 throw new Exception("A report included unsaved active time from the tracker summaries.");
             store.Stop(nextDay, runningId); window.Refresh(); window.UpdateClock(nextDay); Totals(30);
+            if (window.Title != "TickRiver" || window.TrackerNav.Content.ToString() != "◷   Time Tracker")
+                throw new Exception("Stopping the timer did not restore the idle navigation and window caption.");
             if (window.TimerLabel.Text != "00:00:00" || window.Chart.Report!.Seconds != 120
                 || !HeaderText(((System.Windows.Data.CollectionViewGroup)((System.Windows.Data.ListCollectionView)window.EntriesGrid.ItemsSource).Groups![0]).Name).EndsWith("00:02:00", StringComparison.Ordinal))
                 throw new Exception("Stopping the timer double-counted its elapsed time or changed completed-entry day grouping.");
